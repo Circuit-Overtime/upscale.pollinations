@@ -9,18 +9,12 @@ from PIL import Image
 from loguru import logger
 import time
 from esrgan import upscale_b64
-import threading
 from concurrent.futures import ThreadPoolExecutor
-
+from config import UPLOAD_FOLDER, MAX_FILE_SIZE, MAX_IMAGE_DIMENSION, ALLOWED_EXTENSIONS, CLEANUP_INTERVAL, FILE_MAX_AGE
 app = Quart(__name__)
 
 # Configuration
-MAX_FILE_SIZE = 7 * 1024 * 1024  
-MAX_IMAGE_DIMENSION = 2048 
-UPLOAD_FOLDER = "uploads"
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp', 'bmp'}
-CLEANUP_INTERVAL = 300  #in seconds has been counted
-FILE_MAX_AGE = 300  #in seconds has been counted
+
 
 executor = ThreadPoolExecutor(max_workers=10)
 

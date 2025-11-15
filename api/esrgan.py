@@ -8,7 +8,7 @@ import time
 from multiprocessing.managers import BaseManager
 from loguru import logger
 import threading
-from config import MODEL_DIR, MODEL_PATH_x2, MODEL_PATH_x4
+from config import MODEL_DIR,NUM_SERVERS
 
 os.makedirs(MODEL_DIR, exist_ok=True)
 
@@ -20,7 +20,6 @@ class ModelManager(BaseManager):
 ModelManager.register("ipcService")
 
 MODEL_SERVERS = []
-NUM_SERVERS = 5  
 current_server_index = 0
 server_lock = threading.Lock()
 

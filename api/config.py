@@ -1,3 +1,10 @@
 MODEL_DIR = "models"
 MODEL_PATH_x4 = "models/RealESRGAN_x4plus.pth"
 MODEL_PATH_x2 = "models/RealESRGAN_x2plus.pth"
+NUM_SERVERS = 5  
+MAX_FILE_SIZE = 7 * 1024 * 1024  
+MAX_IMAGE_DIMENSION = 2048 
+UPLOAD_FOLDER = "uploads"
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp', 'bmp'}
+CLEANUP_INTERVAL = 300  #in seconds has been counted
+FILE_MAX_AGE = 300  #in seconds has been counted
