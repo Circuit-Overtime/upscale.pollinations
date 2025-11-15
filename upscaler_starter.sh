@@ -11,7 +11,7 @@ cleanup() {
 
 trap cleanup SIGINT SIGTERM EXIT
 
-for port in {5002..5006}; do
+for port in {6002..6006}; do
     echo "Starting model server on port $port"
     python api/model_server.py $port &
     sleep 2  

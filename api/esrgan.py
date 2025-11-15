@@ -25,7 +25,7 @@ server_lock = threading.Lock()
 
 def initialize_model_servers():
     global MODEL_SERVERS
-    base_port = 5002
+    base_port = 6002
     
     for i in range(NUM_SERVERS):
         try:

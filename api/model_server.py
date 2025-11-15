@@ -75,7 +75,7 @@ def signal_handler(signum, frame):
     os._exit(0)
 
 if __name__ == "__main__":
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 5002
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 6002
     
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
