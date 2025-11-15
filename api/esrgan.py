@@ -1,20 +1,60 @@
 import torch
 import numpy as np
 from PIL import Image
-from realesrgan import RealESRGANer
-from basicsr.archs.rrdbnet_arch import RRDBNet
 import base64
 import io
 import os
 import time
+from multiprocessing.managers import BaseManager
+from loguru import logger
+import threading
 from config import MODEL_DIR, MODEL_PATH_x2, MODEL_PATH_x4
 
 os.makedirs(MODEL_DIR, exist_ok=True)
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-use_half = torch.cuda.is_available()
 
-print("Using device:", device)
+print("Connecting to model servers...")
 
+# ---------------------------
+# IPC Model Server Setup
+# ---------------------------
+
+class ModelManager(BaseManager): 
+    pass
+
+ModelManager.register("ipcService")
+
+# Create connections to multiple model server instances
+MODEL_SERVERS = []
+NUM_SERVERS = 5  # Total 5 instances
+current_server_index = 0
+server_lock = threading.Lock()
+
+def initialize_model_servers():
+    global MODEL_SERVERS
+    base_port = 5002
+    
+    for i in range(NUM_SERVERS):
+        try:
+            manager = ModelManager(address=("localhost", base_port + i), authkey=b"ipcService")
+            manager.connect()
+            MODEL_SERVERS.append(manager.ipcService())
+            logger.info(f"Connected to model server on port {base_port + i}")
+        except Exception as e:
+            logger.error(f"Failed to connect to model server on port {base_port + i}: {e}")
+
+def get_next_server():
+    """Round-robin server selection"""
+    global current_server_index
+    with server_lock:
+        if not MODEL_SERVERS:
+            raise RuntimeError("No model servers available")
+        
+        server = MODEL_SERVERS[current_server_index]
+        current_server_index = (current_server_index + 1) % len(MODEL_SERVERS)
+        return server
+
+# Initialize connections on import
+initialize_model_servers()
 
 # ---------------------------
 # Base64 <-> Image Converters
@@ -35,35 +75,21 @@ def image_to_b64(img):
 
 
 # ---------------------------
-# Upscaling Function
+# Upscaling Function with IPC
 # ---------------------------
 
 def upscale_b64(b64_image, scale: int = 2):
-
-    # Select model & weight - use RRDBNet for RealESRGAN models
-    if scale == 2:
-        model_path = MODEL_PATH_x2
-        model = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=2)
-    elif scale == 4:
-        model_path = MODEL_PATH_x4
-        model = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=4)
-    else:
+    if scale not in [2, 4]:
         raise ValueError("Unsupported scale. Use scale=2 or scale=4.")
-
-    # Load model
-    upsampler = RealESRGANer(
-        scale=scale,
-        model_path=model_path,
-        model=model,
-        tile=512,
-        tile_pad=10,
-        pre_pad=0,
-        half=use_half,
-        device=device
-    )
-
+    
+    # Get a model server instance using round-robin
+    server = get_next_server()
+    
+    # Select the appropriate upsampler from the server
+    upsampler = server.upsampler_x2 if scale == 2 else server.upsampler_x4
+    
     img = b64_to_image(b64_image)
-
+    
     # --------- RGBA handling ----------
     if img.mode == 'RGBA':
         r, g, b, a = img.split()
@@ -103,7 +129,6 @@ def upscale_b64(b64_image, scale: int = 2):
         "file_path": output_path,
         "base64": image_to_b64(out_img)
     }
-
 
 # ---------------------------
 # Test Run

@@ -2,6 +2,9 @@ from multiprocessing.managers import BaseManager
 import threading
 from concurrent.futures import ThreadPoolExecutor
 import time
+import sys
+import os
+import signal
 from basicsr.archs.rrdbnet_arch import RRDBNet
 from config import MODEL_PATH_x2, MODEL_PATH_x4
 from realesrgan import RealESRGANer
@@ -36,24 +39,45 @@ class ipcModules:
             pre_pad=0,
             half=use_half,
             device=device
-    )
-
+        )
+        logger.info("Models loaded successfully")
 
 def shutdown_graceful():
     logger.info("Shutting down model server gracefully...")
-        
-    
+    # Clear GPU memory if available
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        logger.info("GPU memory cleared")
+
+def signal_handler(signum, frame):
+    """Handle shutdown signals"""
+    logger.info(f"Received signal {signum}, shutting down...")
+    shutdown_graceful()
+    os._exit(0)
+
 if __name__ == "__main__":
-    class modelManager(BaseManager): pass
+    # Get port from command line argument or use default
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 5002
+    
+    # Set up signal handlers for graceful shutdown
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    class modelManager(BaseManager): 
+        pass
+    
     modelManager.register("ipcService", ipcModules)
-    manager = modelManager(address=("localhost", 5002), authkey=b"ipcService")
+    manager = modelManager(address=("localhost", port), authkey=b"ipcService")
     server = manager.get_server()
+    
+    logger.info(f"Starting model server on port {port}")
+    
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("Server stopped by user.")
+        logger.info("Server stopped by user.")
     except Exception as e:
-        print(f"[ERROR] Server error: {e}")
+        logger.error(f"Server error: {e}")
     finally:
         shutdown_graceful()
-        print("[INFO] Shutdown complete.")
+        logger.info("Shutdown complete.")
