@@ -1,0 +1,59 @@
+from multiprocessing.managers import BaseManager
+import threading
+from concurrent.futures import ThreadPoolExecutor
+import time
+from basicsr.archs.rrdbnet_arch import RRDBNet
+from config import MODEL_PATH_x2, MODEL_PATH_x4
+from realesrgan import RealESRGANer
+import torch
+from loguru import logger
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+use_half = torch.cuda.is_available()
+
+class ipcModules:
+    def __init__(self):
+        logger.info("Loading upscaler model...")
+        model_x2 = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=2)
+        model_x4 = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=4)
+
+        self.upsampler_x4 = RealESRGANer(
+            scale=4,
+            model_path=MODEL_PATH_x4,
+            model=model_x4,
+            tile=512,
+            tile_pad=10,
+            pre_pad=0,
+            half=use_half,
+            device=device
+        )
+        self.upsampler_x2 = RealESRGANer(
+            scale=2,
+            model_path=MODEL_PATH_x2,
+            model=model_x2,
+            tile=512,
+            tile_pad=10,
+            pre_pad=0,
+            half=use_half,
+            device=device
+    )
+
+
+def shutdown_graceful():
+    logger.info("Shutting down model server gracefully...")
+        
+    
+if __name__ == "__main__":
+    class modelManager(BaseManager): pass
+    modelManager.register("ipcService", ipcModules)
+    manager = modelManager(address=("localhost", 5002), authkey=b"ipcService")
+    server = manager.get_server()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("Server stopped by user.")
+    except Exception as e:
+        print(f"[ERROR] Server error: {e}")
+    finally:
+        shutdown_graceful()
+        print("[INFO] Shutdown complete.")
