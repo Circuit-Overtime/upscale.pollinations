@@ -67,27 +67,27 @@ def image_to_b64(img):
     img.save(buffer, format="PNG")
     return base64.b64encode(buffer.getvalue()).decode()
 
-def upscale_b64(b64_image, scale: int = 2):
+def upscale_b64(b64_image, scale: int):
     if scale not in [2, 4]:
         raise ValueError("Unsupported scale. Use scale=2 or scale=4.")
 
     server = get_next_server()
-    
+    start_time = time.time()
     img = b64_to_image(b64_image)
     if img.mode == 'RGBA':
         r, g, b, a = img.split()
         rgb_img = Image.merge('RGB', (r, g, b))
         rgb_np = np.array(rgb_img)
         if scale == 2:
-            upscaled_rgb, _ = server.enhance_x2(rgb_np, outscale=scale)
-        else:  
-            upscaled_rgb, _ = server.enhance_x4(rgb_np, outscale=scale)
+            upscaled_rgb, _ = server.enhance_x2(rgb_np, outscale=2)
+        elif scale == 4:  
+            upscaled_rgb, _ = server.enhance_x4(rgb_np, outscale=4)
         alpha_np = np.array(a)
         alpha_3ch = np.repeat(alpha_np[:, :, None], 3, axis=2)
         if scale == 2:
-            upscaled_alpha_3ch, _ = server.enhance_x2(alpha_3ch, outscale=scale)
-        else:  
-            upscaled_alpha_3ch, _ = server.enhance_x4(alpha_3ch, outscale=scale)
+            upscaled_alpha_3ch, _ = server.enhance_x2(alpha_3ch, outscale=2)
+        elif scale == 4:  
+            upscaled_alpha_3ch, _ = server.enhance_x4(alpha_3ch, outscale=4)
         upscaled_alpha = upscaled_alpha_3ch[:, :, 0]
 
         
@@ -98,8 +98,12 @@ def upscale_b64(b64_image, scale: int = 2):
                        upscaled_alpha]).astype(np.uint8),
             mode='RGBA'
         )
+        end_time = time.time()
+        logger.info(f"Upscaling took {end_time - start_time:.2f} seconds")
 
     else:
+        end_time = time.time()
+        logger.info(f"Upscaling took {end_time - start_time:.2f} seconds")
         img_np = np.array(img)
         if scale == 2:
             output_np, _ = server.enhance_x2(img_np, outscale=scale)
@@ -119,9 +123,9 @@ def upscale_b64(b64_image, scale: int = 2):
 
 
 if __name__ == "__main__":
-    with open("input.png", "rb") as f:
+    with open("test_images/testImg2.jpg", "rb") as f:
         b64_input = base64.b64encode(f.read()).decode()
 
-    result = upscale_b64(b64_input, scale=2)  
+    result = upscale_b64(b64_input, scale=4)  
     print("Saved:", result["file_path"])
     print(result["base64"][:200])

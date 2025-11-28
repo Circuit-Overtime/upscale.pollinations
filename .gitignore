@@ -3,3 +3,4 @@ upscaler/
 models/
 __pycache__/
 uploads/
+test_images/
