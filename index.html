@@ -79,7 +79,6 @@
     <div class="text-red-600 mt-4 font-semibold" id="error"></div>
     
     <div class="flex gap-8 mt-8" id="imagesContainer" style="display:none;">
-        <!-- Original Image -->
         <div class="flex-1 text-center">
             <h3 class="text-lg font-semibold mb-2 text-gray-700">Original</h3>
             <div class="relative bg-gray-100 rounded border border-gray-200 overflow-hidden">
@@ -87,16 +86,12 @@
             </div>
         </div>
         
-        <!-- Upscaled Image with Loading State -->
         <div class="flex-1 text-center">
             <h3 class="text-lg font-semibold mb-2 text-gray-700">Upscaled</h3>
             <div class="relative bg-gray-100 rounded border border-gray-200 overflow-hidden">
-                <!-- Skeleton Loader -->
                 <div id="upscaledSkeleton" class="skeleton aspect-square w-full"></div>
-                <!-- Actual Image -->
                 <img id="upscaledImg" src="" alt="Upscaled Image" class="w-full rounded hidden" style="animation: fadeIn 0.8s ease-out;">
             </div>
-            <!-- Processing Info -->
             <div id="processingInfo" class="text-sm text-gray-500 mt-2" style="display:none;">
                 <div class="flex items-center justify-center gap-2">
                     <div class="w-2 h-2 bg-blue-500 rounded-full pulse-processing"></div>
@@ -116,12 +111,8 @@ document.getElementById('upscaleForm').addEventListener('submit', async function
     const submitBtn = document.getElementById('submitBtn');
     const errorDiv = document.getElementById('error');
     const imagesContainer = document.getElementById('imagesContainer');
-    
-    // Reset state
     errorDiv.textContent = '';
     submitBtn.disabled = true;
-    
-    // Show original image immediately
     const originalImg = document.getElementById('originalImg');
     originalImg.onload = () => {
         imagesContainer.style.display = 'flex';
@@ -131,8 +122,6 @@ document.getElementById('upscaleForm').addEventListener('submit', async function
         submitBtn.disabled = false;
     };
     originalImg.src = imgUrl;
-    
-    // Show loading state for upscaled
     document.getElementById('upscaledSkeleton').style.display = 'block';
     document.getElementById('upscaledImg').classList.add('hidden');
     document.getElementById('processingInfo').style.display = 'block';
