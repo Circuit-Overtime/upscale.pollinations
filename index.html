@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Image Upscaler Frontend</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: scale(0.95);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+        
+        @keyframes pulse-glow {
+            0%, 100% {
+                box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7);
+            }
+            50% {
+                box-shadow: 0 0 0 10px rgba(59, 130, 246, 0);
+            }
+        }
+        
+        .animate-in {
+            animation: fadeIn 0.6s ease-out;
+        }
+        
+        .pulse-processing {
+            animation: pulse-glow 2s infinite;
+        }
+        
+        .skeleton {
+            background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+            background-size: 200% 100%;
+            animation: loading 1.5s infinite;
+        }
+        
+        @keyframes loading {
+            0% {
+                background-position: 200% 0;
+            }
+            100% {
+                background-position: -200% 0;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 font-sans">
+<div class="max-w-6xl mx-auto bg-white p-8 mt-8 rounded-lg shadow">
+    <h1 class="text-3xl font-bold mb-6 text-gray-800">Image Upscaler</h1>
+    <form id="upscaleForm" class="space-y-6">
+        <div>
+            <label class="block font-medium text-gray-700 mb-1">
+                Image URL:
+                <input type="text" id="imgUrl" value="https://media.architecturaldigest.com/photos/66a951edce728792a48166e6/3:2/w_7950,h_5300,c_limit/GettyImages-955441104.jpg" required
+                    class="mt-2 w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-400">
+            </label>
+        </div>
+        <div>
+            <label class="block font-medium text-gray-700 mb-1">
+                Scale:
+                <select id="scale"
+                    class="mt-2 w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-400">
+                    <option value="2">2x</option>
+                    <option value="4">4x</option>
+                </select>
+            </label>
+        </div>
+        <button type="submit" id="submitBtn"
+            class="mt-4 px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition font-semibold text-lg disabled:bg-gray-400">
+            Upscale
+        </button>
+    </form>
+    
+    <div class="text-red-600 mt-4 font-semibold" id="error"></div>
+    
+    <div class="flex gap-8 mt-8" id="imagesContainer" style="display:none;">
+        <!-- Original Image -->
+        <div class="flex-1 text-center">
+            <h3 class="text-lg font-semibold mb-2 text-gray-700">Original</h3>
+            <div class="relative bg-gray-100 rounded border border-gray-200 overflow-hidden">
+                <img id="originalImg" src="" alt="Original Image" class="w-full rounded animate-in">
+            </div>
+        </div>
+        
+        <!-- Upscaled Image with Loading State -->
+        <div class="flex-1 text-center">
+            <h3 class="text-lg font-semibold mb-2 text-gray-700">Upscaled</h3>
+            <div class="relative bg-gray-100 rounded border border-gray-200 overflow-hidden">
+                <!-- Skeleton Loader -->
+                <div id="upscaledSkeleton" class="skeleton aspect-square w-full"></div>
+                <!-- Actual Image -->
+                <img id="upscaledImg" src="" alt="Upscaled Image" class="w-full rounded hidden" style="animation: fadeIn 0.8s ease-out;">
+            </div>
+            <!-- Processing Info -->
+            <div id="processingInfo" class="text-sm text-gray-500 mt-2" style="display:none;">
+                <div class="flex items-center justify-center gap-2">
+                    <div class="w-2 h-2 bg-blue-500 rounded-full pulse-processing"></div>
+                    <span>Processing...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.getElementById('upscaleForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const imgUrl = document.getElementById('imgUrl').value.trim();
+    const scale = document.getElementById('scale').value;
+    const submitBtn = document.getElementById('submitBtn');
+    const errorDiv = document.getElementById('error');
+    const imagesContainer = document.getElementById('imagesContainer');
+    
+    // Reset state
+    errorDiv.textContent = '';
+    submitBtn.disabled = true;
+    
+    // Show original image immediately
+    const originalImg = document.getElementById('originalImg');
+    originalImg.onload = () => {
+        imagesContainer.style.display = 'flex';
+    };
+    originalImg.onerror = () => {
+        errorDiv.textContent = 'Failed to load original image.';
+        submitBtn.disabled = false;
+    };
+    originalImg.src = imgUrl;
+    
+    // Show loading state for upscaled
+    document.getElementById('upscaledSkeleton').style.display = 'block';
+    document.getElementById('upscaledImg').classList.add('hidden');
+    document.getElementById('processingInfo').style.display = 'block';
+    
+    try {
+        const apiUrl = `http://localhost:8000/upscale?img_url=${encodeURIComponent(imgUrl)}&scale=${scale}`;
+        const response = await fetch(apiUrl);
+        const data = await response.json();
+        
+        if (!response.ok || !data.base64) {
+            throw new Error(data.error || 'Upscaling failed.');
+        }
+        
+        const upscaledImg = document.getElementById('upscaledImg');
+        upscaledImg.onload = () => {
+            document.getElementById('upscaledSkeleton').style.display = 'none';
+            upscaledImg.classList.remove('hidden');
+            document.getElementById('processingInfo').style.display = 'none';
+        };
+        upscaledImg.src = 'data:image/png;base64,' + data.base64;
+        
+    } catch (err) {
+        errorDiv.textContent = 'Error: ' + err.message;
+        document.getElementById('upscaledSkeleton').style.display = 'none';
+        document.getElementById('processingInfo').style.display = 'none';
+    } finally {
+        submitBtn.disabled = false;
+    }
+});
+</script>
+</body>
+</html>
