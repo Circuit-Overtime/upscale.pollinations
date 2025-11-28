@@ -8,7 +8,7 @@ import time
 from multiprocessing.managers import BaseManager
 from loguru import logger
 import threading
-from config import MODEL_DIR,NUM_SERVERS
+from config import MODEL_DIR
 
 os.makedirs(MODEL_DIR, exist_ok=True)
 
@@ -25,19 +25,25 @@ server_lock = threading.Lock()
 
 def initialize_model_servers():
     global MODEL_SERVERS
-    base_port = 6002
+    ports = [6002, 6003]
     
-    for i in range(NUM_SERVERS):
+    for port in ports:
         try:
-            manager = ModelManager(address=("localhost", base_port + i), authkey=b"ipcService")
+            manager = ModelManager(address=("localhost", port), authkey=b"ipcService")
             manager.connect()
-            MODEL_SERVERS.append(manager.ipcService())
-            logger.info(f"Connected to model server on port {base_port + i}")
+            service = manager.ipcService()
+            MODEL_SERVERS.append(service)
+            logger.info(f"Connected to model server on port {port}")
         except Exception as e:
-            logger.error(f"Failed to connect to model server on port {base_port + i}: {e}")
+            logger.warning(f"Failed to connect to model server on port {port}: {e}")
+    
+    if not MODEL_SERVERS:
+        logger.error("No model servers available! Please start model_server.py first.")
+        logger.info("Run: python api/model_server.py")
+    else:
+        logger.info(f"Successfully connected to {len(MODEL_SERVERS)} model server(s)")
 
 def get_next_server():
-    """Round-robin server selection"""
     global current_server_index
     with server_lock:
         if not MODEL_SERVERS:

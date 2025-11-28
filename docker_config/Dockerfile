@@ -24,8 +24,6 @@ RUN pip install --no-cache-dir -r requirements.txt && \
 COPY api/ ./api/
 COPY start_servers.sh ./
 COPY config.py ./
-RUN mkdir -p /app/uploads && \
-    chmod +x start_servers.sh
 
 
 EXPOSE 8000

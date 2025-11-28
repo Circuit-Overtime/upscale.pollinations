@@ -76,10 +76,7 @@ def signal_handler(signum, frame):
     os._exit(0)
 
 if __name__ == "__main__":
-    base_port = 6002
-    for i in range(NUM_SERVERS):
-        ports =  [base_port + i for i in range(NUM_SERVERS)]
-    
+    ports = [6002, 6003]
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
@@ -89,9 +86,8 @@ if __name__ == "__main__":
     modelManager.register("ipcService", ipcModules)
     for port in ports:
         manager = modelManager(address=("localhost", port), authkey=b"ipcService")
-    server = manager.get_server()
-    
-    logger.info(f"Starting model server on port {port}")
+        server = manager.get_server()
+        logger.info(f"Starting model server on port {port}")
     
     try:
         server.serve_forever()
