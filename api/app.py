@@ -167,34 +167,105 @@ async def validate_image_url(url: str) -> bool:
 
 @app.route('/upscale', methods=['POST', 'GET'])
 async def upscale_endpoint():
-    if request.method == 'GET':
-        img_url = request.args.get('img_url')
-        scale = int(request.args.get('scale', 2))
-    else:
-        try:
-            data = await request.get_json()
-            
-            if not data:
-                return jsonify({"error": "No JSON data provided"}), 400
-            
-            img_url = data.get('img_url')
-            scale = data.get('scale', 2)
-            
+    img_url = ""
+    scale = 2
+    start_time = time.time()
+    
+    try:
+        if request.method == 'GET':
+            img_url = request.args.get('img_url')
+            scale = int(request.args.get('scale', 2))
+            if not img_url:
+                return jsonify({"error": "img_url is required"}), 400
             if scale not in [2, 4]:
                 return jsonify({"error": "Scale must be 2 or 4"}), 400
             
-            if not img_url:
-                return jsonify({"error": "img_url is required"}), 400
-            
+            # Validate URL format
             if not isinstance(img_url, str) or not (img_url.startswith('http://') or img_url.startswith('https://')):
                 return jsonify({"error": "Invalid img_url format"}), 400
             
-            # NEW: Validate that URL points to an actual image
+            # Validate image URL
             logger.info(f"Validating image URL: {img_url}")
             if not await validate_image_url(img_url):
                 return jsonify({"error": "URL does not point to a valid image file"}), 400
             
-            start_time = time.time()
+            # Download image
+            try:
+                logger.info(f"Downloading image from: {img_url}")
+                image_data = await download_image(img_url)
+            except Exception as e:
+                logger.error(f"Download failed: {e}")
+                return jsonify({"error": str(e)}), 400
+
+            # Validate and prepare image
+            try:
+                b64_image, width, height, img_format = validate_and_prepare_image(image_data)
+                logger.info(f"Image validated: {width}x{height}, format: {img_format}, size: {len(image_data)} bytes")
+            except Exception as e:
+                logger.error(f"Image validation failed: {e}")
+                return jsonify({"error": str(e)}), 400
+            
+            # Check file sizes
+            b64_size = get_image_size_from_base64(b64_image)
+            if b64_size > MAX_FILE_SIZE:
+                return jsonify({
+                    "error": f"Image too large for upscaling: {b64_size} bytes (max: {MAX_FILE_SIZE})",
+                    "original_size": {"width": width, "height": height, "bytes": len(image_data)}
+                }), 400
+            
+            estimated_output_size = len(image_data) * (scale ** 2)
+            if estimated_output_size > MAX_FILE_SIZE * 2:
+                return jsonify({
+                    "error": f"Upscaled image would be too large: ~{estimated_output_size} bytes",
+                    "original_size": {"width": width, "height": height, "bytes": len(image_data)},
+                    "scale": scale
+                }), 400
+            
+            # Process upscale
+            try:
+                logger.info(f"Starting upscaling: {width}x{height} -> {width*scale}x{height*scale}")
+                result = await process_upscale(b64_image, scale)
+                
+                processing_time = time.time() - start_time
+                logger.info(f"Upscaling completed in {processing_time:.2f}s")
+                
+                return jsonify({
+                    "success": True,
+                    "file_path": result["file_path"],
+                    "base64": result["base64"],
+                    "original_size": {
+                        "width": width,
+                        "height": height,
+                        "bytes": len(image_data)
+                    },
+                    "upscaled_size": {
+                        "width": width * scale,
+                        "height": height * scale,
+                        "scale": scale
+                    },
+                    "processing_time": round(processing_time, 2)
+                })
+                
+            except Exception as e:
+                logger.error(f"Upscaling failed: {e}")
+                return jsonify({"error": f"Upscaling failed: {str(e)}"}), 500
+        
+        elif request.method == 'POST':
+            data = await request.get_json()
+            if not data:
+                return jsonify({"error": "No JSON data provided"}), 400
+            img_url = data.get('img_url')
+            scale = data.get('scale', 2)
+            if scale not in [2, 4]:
+                return jsonify({"error": "Scale must be 2 or 4"}), 400
+            if not img_url:
+                return jsonify({"error": "img_url is required"}), 400
+            if not isinstance(img_url, str) or not (img_url.startswith('http://') or img_url.startswith('https://')):
+                return jsonify({"error": "Invalid img_url format"}), 400
+                  
+            logger.info(f"Validating image URL: {img_url}")
+            if not await validate_image_url(img_url):
+                return jsonify({"error": "URL does not point to a valid image file"}), 400
             
             try:
                 logger.info(f"Downloading image from: {img_url}")
@@ -252,13 +323,10 @@ async def upscale_endpoint():
             except Exception as e:
                 logger.error(f"Upscaling failed: {e}")
                 return jsonify({"error": f"Upscaling failed: {str(e)}"}), 500
-            
-        except Exception as e:
-            logger.error(f"Unexpected error: {e}")
-            return jsonify({"error": f"Internal server error: {str(e)}"}), 500
     
-    # Fallback for GET requests - ensure this path exists
-    return jsonify({"error": "Missing required parameters"}), 400
+    except Exception as e:
+        logger.error(f"Unexpected error in upscale endpoint: {e}")
+        return jsonify({"error": f"Internal server error: {str(e)}"}), 500
 
 @app.route('/health', methods=['GET'])
 async def health_check():
