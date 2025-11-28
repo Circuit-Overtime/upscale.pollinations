@@ -10,6 +10,7 @@ from basicsr.archs.rrdbnet_arch import RRDBNet
 from config import MODEL_PATH_x2, MODEL_PATH_x4
 from realesrgan import RealESRGANer
 import torch
+from config import NUM_SERVERS
 from loguru import logger
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -75,7 +76,9 @@ def signal_handler(signum, frame):
     os._exit(0)
 
 if __name__ == "__main__":
-    port =  6002
+    base_port = 6002
+    for i in range(NUM_SERVERS):
+        ports =  [base_port + i for i in range(NUM_SERVERS)]
     
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
@@ -84,7 +87,8 @@ if __name__ == "__main__":
         pass
     
     modelManager.register("ipcService", ipcModules)
-    manager = modelManager(address=("localhost", port), authkey=b"ipcService")
+    for port in ports:
+        manager = modelManager(address=("localhost", port), authkey=b"ipcService")
     server = manager.get_server()
     
     logger.info(f"Starting model server on port {port}")
