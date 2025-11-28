@@ -145,12 +145,29 @@ async def process_upscale(b64_image: str, scale: int):
         logger.error(f"Upscaling error: {e}")
         raise
 
+async def validate_image_url(url: str) -> bool:
+    try:
+        timeout = aiohttp.ClientTimeout(total=10)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.head(url, allow_redirects=True) as response:
+                if response.status != 200:
+                    return False
+                
+                content_type = response.headers.get('content-type', '').lower()
+                valid_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/x-icon']
+                
+                if not any(vtype in content_type for vtype in valid_types):
+                    return False
+                
+                return True
+    except Exception:
+        return False
+
 @app.route('/upscale', methods=['POST', 'GET'])
 async def upscale_endpoint():
     if request.method == 'GET':
         img_url = request.args.get('img_url')
         scale = int(request.args.get('scale', 2))
-        data = {'img_url': img_url, 'scale': scale}
     else:
         try:
             data = await request.get_json()
@@ -169,6 +186,11 @@ async def upscale_endpoint():
             
             if not isinstance(img_url, str) or not (img_url.startswith('http://') or img_url.startswith('https://')):
                 return jsonify({"error": "Invalid img_url format"}), 400
+            
+            # NEW: Validate that URL points to an actual image
+            logger.info(f"Validating image URL: {img_url}")
+            if not await validate_image_url(img_url):
+                return jsonify({"error": "URL does not point to a valid image file"}), 400
             
             start_time = time.time()
             
@@ -193,15 +215,13 @@ async def upscale_endpoint():
                     "original_size": {"width": width, "height": height, "bytes": len(image_data)}
                 }), 400
             
-            
             estimated_output_size = len(image_data) * (scale ** 2)
-            if estimated_output_size > MAX_FILE_SIZE * 2:  
+            if estimated_output_size > MAX_FILE_SIZE * 2:
                 return jsonify({
                     "error": f"Upscaled image would be too large: ~{estimated_output_size} bytes",
                     "original_size": {"width": width, "height": height, "bytes": len(image_data)},
                     "scale": scale
                 }), 400
-            
             
             try:
                 logger.info(f"Starting upscaling: {width}x{height} -> {width*scale}x{height*scale}")
@@ -234,6 +254,9 @@ async def upscale_endpoint():
         except Exception as e:
             logger.error(f"Unexpected error: {e}")
             return jsonify({"error": f"Internal server error: {str(e)}"}), 500
+    
+    # Fallback for GET requests - ensure this path exists
+    return jsonify({"error": "Missing required parameters"}), 400
 
 @app.route('/health', methods=['GET'])
 async def health_check():
