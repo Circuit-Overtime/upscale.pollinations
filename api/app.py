@@ -10,10 +10,12 @@ from loguru import logger
 import time
 from esrgan import upscale_b64
 from concurrent.futures import ThreadPoolExecutor
+from quart_cors import cors
 from config import UPLOAD_FOLDER, MAX_FILE_SIZE, MAX_IMAGE_DIMENSION, ALLOWED_EXTENSIONS, CLEANUP_INTERVAL, FILE_MAX_AGE
 app = Quart(__name__)
+cors(app, allow_origin="*")
 
-# Configuration
+
 
 
 executor = ThreadPoolExecutor(max_workers=10)
