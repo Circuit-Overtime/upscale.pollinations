@@ -75,22 +75,36 @@ def signal_handler(signum, frame):
     shutdown_graceful()
     os._exit(0)
 
+import threading
+
+def start_server_on_port(port):
+    try:
+        class modelManager(BaseManager): 
+            pass
+        
+        modelManager.register("ipcService", ipcModules)
+        manager = modelManager(address=("localhost", port), authkey=b"ipcService")
+        server = manager.get_server()
+        logger.info(f"Starting model server on port {port}")
+        server.serve_forever()
+    except Exception as e:
+        logger.error(f"Error on port {port}: {e}")
+
 if __name__ == "__main__":
     ports = [6002, 6003]
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
-    class modelManager(BaseManager): 
-        pass
-    
-    modelManager.register("ipcService", ipcModules)
+    threads = []
     for port in ports:
-        manager = modelManager(address=("localhost", port), authkey=b"ipcService")
-        server = manager.get_server()
-        logger.info(f"Starting model server on port {port}")
+        thread = threading.Thread(target=start_server_on_port, args=(port,), daemon=False)
+        thread.start()
+        threads.append(thread)
+        logger.info(f"Spawned thread for port {port}")
     
     try:
-        server.serve_forever()
+        for thread in threads:
+            thread.join()
     except KeyboardInterrupt:
         logger.info("Server stopped by user.")
     except Exception as e:
