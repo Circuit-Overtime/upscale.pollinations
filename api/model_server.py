@@ -1,16 +1,11 @@
 from multiprocessing.managers import BaseManager
 import threading
-from concurrent.futures import ThreadPoolExecutor
-import time
-import sys
 import os
 import signal
-import numpy as np
 from basicsr.archs.rrdbnet_arch import RRDBNet
 from config import MODEL_PATH_x2, MODEL_PATH_x4
 from realesrgan import RealESRGANer
 import torch
-from config import NUM_SERVERS
 from loguru import logger
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
