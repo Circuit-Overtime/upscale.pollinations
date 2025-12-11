@@ -1,6 +1,6 @@
 upscaler/
 .*env
-models/
+model_cache/
 __pycache__/
 uploads/
 test_images/

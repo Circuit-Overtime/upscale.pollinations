@@ -1,115 +1,146 @@
 import numpy as np
 import cv2
 from PIL import Image
-from basicsr.archs.rrdbnet_arch import RRDBNet
-from realesrgan import RealESRGANer
-from gfpgan import GFPGANer
+from multiprocessing.managers import BaseManager
+import torch
+from loguru import logger
+from config import MAX_8K_DIMENSION, MAX_4K_DIMENSION, MAX_2K_DIMENSION
 
-# Model paths
-UPSCALER_MODEL_x2 = "model_cache/RealESRGAN_x2plus.pth"
-FACE_ENHANCER_MODEL = "model_cache/GFPGANv1.4.pth"
-UPSCALE_FACTOR = 2
+class modelManager(BaseManager):
+    pass
 
-# Load RealESRGAN x2 upscaler
-model_x2 = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=2)
-upsampler = RealESRGANer(
-    scale=2,
-    model_path=UPSCALER_MODEL_x2,
-    model=model_x2,
-    tile=768,
-    tile_pad=0,
-    pre_pad=0,
-    half=False,
-    device="cuda"
-)
+modelManager.register("ipcService")
 
-# Load GFPGAN face enhancer
-face_enhancer = GFPGANer(
-    model_path=FACE_ENHANCER_MODEL,
-    upscale=2,
-    arch='clean',
-    channel_multiplier=2,
-    bg_upsampler=upsampler,
-    device="cuda"
-)
+IPC_PORTS = [6002, 6003]
+current_port_index = 0
 
-# Load face detector (Haar Cascade)
-face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+def get_model_server():
+    global current_port_index
+    port = IPC_PORTS[current_port_index % len(IPC_PORTS)]
+    current_port_index += 1
+    try:
+        manager = modelManager(address=("localhost", port), authkey=b"ipcService")
+        manager.connect()
+        return manager.ipcService()
+    except Exception as e:
+        logger.error(f"Failed to connect to model server on port {port}: {e}")
+        raise
+
+def calculate_optimal_scale(image_width: int, image_height: int, user_scale: int) -> tuple:
+    max_dimension = MAX_8K_DIMENSION
+    direct_width = image_width * user_scale
+    direct_height = image_height * user_scale
+    if max(direct_width, direct_height) <= max_dimension:
+        logger.info(f"Using direct {user_scale}x scale: {direct_width}x{direct_height}")
+        return user_scale, direct_width, direct_height, True
+    max_scale_width = max_dimension / image_width
+    max_scale_height = max_dimension / image_height
+    optimal_scale = min(max_scale_width, max_scale_height)
+    optimal_scale = int(optimal_scale * 2) / 2
+    if optimal_scale < 2:
+        logger.warning(f"Image too large for 2x upscaling within 8K limit")
+        optimal_scale = 1
+        can_upscale = False
+    else:
+        can_upscale = True
+    final_width = int(image_width * optimal_scale)
+    final_height = int(image_height * optimal_scale)
+    logger.info(f"Adjusted scale from {user_scale}x to {optimal_scale}x to fit 8K: {final_width}x{final_height}")
+    return optimal_scale, final_width, final_height, can_upscale
 
 def detect_faces(image_np):
-    gray = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
-    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
-    return faces
+    try:
+        face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        gray = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
+        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
+        return faces
+    except Exception as e:
+        logger.warning(f"Face detection failed: {e}")
+        return np.array([])
 
-def upscale_face_region(face_img_np):
-    _, _, face_restored = face_enhancer.enhance(
-        face_img_np,
-        has_aligned=False,
-        only_center_face=False,
-        paste_back=True
-    )
-    return face_restored
+def upscale_with_model_server(img_array: np.ndarray, scale: int, enhance_faces: bool = True) -> np.ndarray:
+    try:
+        model_service = get_model_server()
+        if scale == 2:
+            if enhance_faces:
+                logger.info("Upscaling with 2x face enhancement")
+                upscaled_img = model_service.enhance_face_x2(img_array.tobytes())
+                if isinstance(upscaled_img, bytes):
+                    height, width = int(img_array.shape[0] * 2), int(img_array.shape[1] * 2)
+                    upscaled_img = np.frombuffer(upscaled_img, dtype=np.uint8).reshape((height, width, 3))
+            else:
+                logger.info("Upscaling with 2x standard enhancement")
+                upscaled_img = model_service.enhance_x2(img_array.tobytes())
+                if isinstance(upscaled_img, bytes):
+                    height, width = int(img_array.shape[0] * 2), int(img_array.shape[1] * 2)
+                    upscaled_img = np.frombuffer(upscaled_img, dtype=np.uint8).reshape((height, width, 3))
+        elif scale == 4:
+            if enhance_faces:
+                logger.info("Upscaling with 4x face enhancement")
+                upscaled_img = model_service.enhance_face_x4(img_array.tobytes())
+                if isinstance(upscaled_img, bytes):
+                    height, width = int(img_array.shape[0] * 4), int(img_array.shape[1] * 4)
+                    upscaled_img = np.frombuffer(upscaled_img, dtype=np.uint8).reshape((height, width, 3))
+            else:
+                logger.info("Upscaling with 4x standard enhancement")
+                upscaled_img = model_service.enhance_x4(img_array.tobytes())
+                if isinstance(upscaled_img, bytes):
+                    height, width = int(img_array.shape[0] * 4), int(img_array.shape[1] * 4)
+                    upscaled_img = np.frombuffer(upscaled_img, dtype=np.uint8).reshape((height, width, 3))
+        else:
+            raise ValueError(f"Invalid scale: {scale}. Must be 2 or 4")
+        return upscaled_img
+    except Exception as e:
+        logger.error(f"Error during model server upscaling: {e}")
+        raise
 
-def upscale_background(image_np, outscale=UPSCALE_FACTOR):
-    upscaled_np, _ = upsampler.enhance(image_np, outscale=outscale)
-    return upscaled_np
+def upscale_image_pipeline(image_path: str, output_path: str, scale: int = 2, enhance_faces: bool = True) -> dict:
+    try:
+        image_pil = Image.open(image_path).convert('RGB')
+        image_np = np.array(image_pil)
+        original_height, original_width = image_np.shape[:2]
+        logger.info(f"Original image size: {original_width}x{original_height}")
+        if scale not in [2, 4]:
+            logger.warning(f"Invalid scale {scale}, defaulting to 2")
+            scale = 2
+        optimal_scale, final_width, final_height, can_upscale = calculate_optimal_scale(
+            original_width, original_height, scale
+        )
+        if not can_upscale:
+            logger.error("Image too large to upscale while maintaining 8K limit")
+            return {
+                "success": False,
+                "error": "Image too large for upscaling",
+                "original_size": {"width": original_width, "height": original_height}
+            }
+        faces = []
+        if enhance_faces:
+            faces = detect_faces(image_np)
+            if len(faces) > 0:
+                logger.info(f"Detected {len(faces)} face(s)")
+        upscaled_img = upscale_with_model_server(image_np, int(optimal_scale), enhance_faces=(len(faces) > 0))
+        upscaled_pil = Image.fromarray(upscaled_img.astype(np.uint8))
+        upscaled_pil.save(output_path, format="JPEG", quality=95)
+        logger.info(f"Upscaled image saved to {output_path}")
+        return {
+            "success": True,
+            "file_path": output_path,
+            "original_size": {"width": original_width, "height": original_height},
+            "upscaled_size": {"width": final_width, "height": final_height},
+            "requested_scale": scale,
+            "applied_scale": optimal_scale,
+            "faces_detected": len(faces),
+            "faces_enhanced": enhance_faces and len(faces) > 0
+        }
+    except Exception as e:
+        logger.error(f"Upscaling pipeline error: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
 
-def blend_faces(base_img, face_img, x, y, w, h, blend_margin=10):
-    x_up, y_up = x * UPSCALE_FACTOR, y * UPSCALE_FACTOR
-    w_up, h_up = w * UPSCALE_FACTOR, h * UPSCALE_FACTOR
-    mask = np.zeros((h_up, w_up), dtype=np.float32)
-    margin = blend_margin * UPSCALE_FACTOR
-    cv2.rectangle(mask, (margin, margin), (w_up - margin, h_up - margin), 1.0, -1)
-    mask = cv2.GaussianBlur(mask, (margin * 2 + 1, margin * 2 + 1), 0)
-    mask = np.stack([mask] * 3, axis=2)
-    y1, y2 = y_up, y_up + h_up
-    x1, x2 = x_up, x_up + w_up
-    
-    base_img[y1:y2, x1:x2] = (
-        face_img * mask + base_img[y1:y2, x1:x2] * (1 - mask)
-    ).astype(np.uint8)
-    return base_img
-
-def upscale_image_pipeline(image_path, output_path):
-    image_pil = Image.open(image_path).convert('RGB')
-    image_np = np.array(image_pil)
-    faces = detect_faces(image_np)
-    
-    if len(faces) > 0:
-        print(f"Detected {len(faces)} face(s). Using face-aware upscaling...")
-        base_upscaled = upscale_background(image_np)
-        for idx, (x, y, w, h) in enumerate(faces):
-            print(f"Processing face {idx + 1}/{len(faces)}...")
-            padding = int(max(w, h) * 0.3)
-            x1 = max(0, x - padding)
-            y1 = max(0, y - padding)
-            x2 = min(image_np.shape[1], x + w + padding)
-            y2 = min(image_np.shape[0], y + h + padding)
-            
-            face_region = image_np[y1:y2, x1:x2]
-            face_upscaled = upscale_face_region(face_region)
-            x1_up = x1 * UPSCALE_FACTOR
-            y1_up = y1 * UPSCALE_FACTOR
-            h_face, w_face = face_upscaled.shape[:2]
-            base_upscaled[y1_up:y1_up + h_face, x1_up:x1_up + w_face] = face_upscaled
-        
-        result = base_upscaled
-        
-    else:
-        print("No faces detected. Using standard RealESRGAN upscaling...")
-        result = upscale_background(image_np)
-    
-    # Save result
-    result_pil = Image.fromarray(result)
-    result_pil.save(output_path, format="JPEG", quality=100)
-    print(f"Upscaled image saved to {output_path}")
-    
-    return result_pil
-
-# Example usage
 if __name__ == "__main__":
     input_image = "original_image.jpg"
     output_image = "upscaled_output.jpg"
-    
-    upscaled = upscale_image_pipeline(input_image, output_image)
-    print("Processing complete!")
+    result = upscale_image_pipeline(input_image, output_image, scale=4, enhance_faces=True)
+    print(f"Processing complete: {result}")
