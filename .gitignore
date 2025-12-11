@@ -1,5 +1,6 @@
 upscaler/
 .*env
+.*jpg
 model_cache/
 __pycache__/
 uploads/

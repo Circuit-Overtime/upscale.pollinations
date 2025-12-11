@@ -9,10 +9,10 @@ UPLOAD_FOLDER = "uploads"
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp', 'bmp'}
 CLEANUP_INTERVAL = 300  #in seconds has been counted
 FILE_MAX_AGE = 300  #in seconds has been counted
-# Resolution limits
-MAX_8K_DIMENSION = 7680  # 8K resolution
-MAX_4K_DIMENSION = 3840  # 4K resolution
-MAX_2K_DIMENSION = 2048  # 2K resolution
+
+MAX_8K_DIMENSION = 7680  
+MAX_4K_DIMENSION = 3840  
+MAX_2K_DIMENSION = 2048  
 MODEL_URLS = {
     "RealESRGAN_x2plus.pth": "https://github.com/Circuit-Overtime/upscale.pollinations/releases/download/1.0.0/RealESRGAN_x2plus.pth",
     "RealESRGAN_x4plus.pth": "https://github.com/Circuit-Overtime/upscale.pollinations/releases/download/1.0.0/RealESRGAN_x4plus.pth"
