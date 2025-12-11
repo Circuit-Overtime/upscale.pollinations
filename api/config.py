@@ -20,3 +20,22 @@ RESOLUTION_TARGETS = {
     '4k': 3840,
     '8k': 7680
 }
+
+UPSCALING_THRESHOLDS = {
+    '2k': {
+        'max_input_dimension': 2048,
+        'max_scale_factor': 1.0,
+        'description': 'No upscaling for 2K target'
+    },
+    '4k': {
+        'max_input_dimension': 2048,  
+        'max_scale_factor': 2.0,
+        'description': '4K: Max 2x upscaling'
+    },
+    '8k': {
+        'max_input_dimension': 2048,   
+        'max_scale_factor': 4.0,
+        'description': '8K: Max 4x upscaling'
+    }
+}
+

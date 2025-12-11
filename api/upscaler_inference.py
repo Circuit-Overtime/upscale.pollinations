@@ -4,7 +4,7 @@ from PIL import Image
 from multiprocessing.managers import BaseManager
 import torch
 from loguru import logger
-from config import MAX_8K_DIMENSION, MAX_4K_DIMENSION, MAX_2K_DIMENSION, RESOLUTION_TARGETS
+from config import MAX_8K_DIMENSION, MAX_4K_DIMENSION, MAX_2K_DIMENSION, RESOLUTION_TARGETS, UPSCALING_THRESHOLDS
 
 class modelManager(BaseManager):
     pass
@@ -34,11 +34,51 @@ def parse_target_resolution(target: str) -> int:
         pixel_value = int(target)
         if pixel_value > 0:
             return pixel_value
+        
         logger.warning(f"Invalid target resolution '{target}', defaulting to 4K")
         return RESOLUTION_TARGETS['4k']
     except (ValueError, TypeError):
         logger.warning(f"Could not parse target resolution '{target}', defaulting to 4K")
         return RESOLUTION_TARGETS['4k']
+
+def validate_upscaling_request(image_width: int, image_height: int, target_resolution: str) -> dict:
+    target_lower = str(target_resolution).lower().strip()
+    
+    if target_lower not in UPSCALING_THRESHOLDS:
+        return {
+            'allowed': False,
+            'reason': f"Unknown target resolution: {target_resolution}",
+            'threshold_config': None,
+            'max_input_dimension': 0,
+            'max_scale_factor': 0,
+            'image_max_dimension': max(image_width, image_height)
+        }
+    
+    threshold_config = UPSCALING_THRESHOLDS[target_lower]
+    max_input_dimension = threshold_config['max_input_dimension']
+    max_scale_factor = threshold_config['max_scale_factor']
+    image_max_dimension = max(image_width, image_height)
+    if image_max_dimension > max_input_dimension:
+        return {
+            'allowed': False,
+            'reason': f"Image too large for {target_resolution.upper()} upscaling. "
+                     f"Max input dimension: {max_input_dimension}px, "
+                     f"your image: {image_max_dimension}px. "
+                     f"({threshold_config['description']})",
+            'threshold_config': threshold_config,
+            'max_input_dimension': max_input_dimension,
+            'max_scale_factor': max_scale_factor,
+            'image_max_dimension': image_max_dimension
+        }
+    
+    return {
+        'allowed': True,
+        'reason': f"Request meets thresholds for {target_resolution.upper()} upscaling",
+        'threshold_config': threshold_config,
+        'max_input_dimension': max_input_dimension,
+        'max_scale_factor': max_scale_factor,
+        'image_max_dimension': image_max_dimension
+    }
 
 def calculate_upscale_strategy(image_width: int, image_height: int, target_max_dimension: int) -> dict:
     max_dimension = max(target_max_dimension, MAX_8K_DIMENSION)
@@ -151,12 +191,34 @@ def upscale_image_pipeline(image_path: str, output_path: str, target_resolution:
         image_pil = Image.open(image_path).convert('RGB')
         image_np = np.array(image_pil)
         original_height, original_width = image_np.shape[:2]
+        
         logger.info(f"Original image size: {original_width}x{original_height}")
+        
         target_max_dimension = parse_target_resolution(target_resolution)
         logger.info(f"Target resolution: {target_resolution} ({target_max_dimension}px max dimension)")
+        
+        validation_result = validate_upscaling_request(original_width, original_height, target_resolution)
+        
+        if not validation_result['allowed']:
+            logger.warning(f"Request rejected: {validation_result['reason']}")
+            return {
+                "success": False,
+                "error": validation_result['reason'],
+                "original_size": {"width": original_width, "height": original_height},
+                "target_resolution": target_resolution,
+                "target_max_dimension": target_max_dimension,
+                "validation_failed": True,
+                "threshold_info": {
+                    "max_input_dimension": validation_result['max_input_dimension'],
+                    "max_scale_factor": validation_result['max_scale_factor'],
+                    "description": validation_result['threshold_config']['description'] if validation_result['threshold_config'] else None
+                }
+            }
+        
         strategy_result = calculate_upscale_strategy(
             original_width, original_height, target_max_dimension
         )
+        
         if not strategy_result['can_upscale']:
             logger.warning(f"Cannot upscale: {strategy_result['reason']}")
             return {
@@ -166,16 +228,20 @@ def upscale_image_pipeline(image_path: str, output_path: str, target_resolution:
                 "target_resolution": target_resolution,
                 "target_max_dimension": target_max_dimension
             }
+        
         faces = []
         if enhance_faces:
             faces = detect_faces(image_np)
             if len(faces) > 0:
                 logger.info(f"Detected {len(faces)} face(s)")
+        
         logger.info(f"Applying upscaling strategy: {strategy_result['strategy']}")
         upscaled_img = apply_sequential_upscaling(image_np, strategy_result['strategy'], enhance_faces=(len(faces) > 0))
+        
         upscaled_pil = Image.fromarray(upscaled_img.astype(np.uint8))
         upscaled_pil.save(output_path, format="JPEG", quality=95)
         logger.info(f"Upscaled image saved to {output_path}")
+        
         return {
             "success": True,
             "file_path": output_path,
@@ -187,8 +253,14 @@ def upscale_image_pipeline(image_path: str, output_path: str, target_resolution:
             "total_scale": strategy_result['total_scale'],
             "faces_detected": len(faces),
             "faces_enhanced": enhance_faces and len(faces) > 0,
-            "strategy_reason": strategy_result['reason']
+            "strategy_reason": strategy_result['reason'],
+            "threshold_validation": {
+                "passed": True,
+                "max_input_allowed": validation_result['max_input_dimension'],
+                "description": validation_result['threshold_config']['description']
+            }
         }
+    
     except Exception as e:
         logger.error(f"Upscaling pipeline error: {e}")
         return {
