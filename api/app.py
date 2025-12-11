@@ -127,21 +127,37 @@ def validate_and_prepare_image(image_data: bytes):
         img = Image.open(io.BytesIO(image_data))
         width, height = img.size
         
-        
         if width > MAX_IMAGE_DIMENSION or height > MAX_IMAGE_DIMENSION:
             raise Exception(f"Image dimensions too large: {width}x{height} (max: {MAX_IMAGE_DIMENSION})")
         
+        # Save to temp file for processing
+        temp_file = os.path.join(UPLOAD_FOLDER, f"temp_{int(time.time() * 1000)}.jpg")
+        img.save(temp_file, format="JPEG", quality=95)
         
-        b64_string = base64.b64encode(image_data).decode()
-        
-        return b64_string, width, height, img.format
+        return temp_file, width, height, img.format
     except Exception as e:
         raise Exception(f"Invalid image: {str(e)}")
 
-async def process_upscale(b64_image: str, scale: int):
+async def process_upscale(image_path: str, target_resolution: str, enhance_faces: bool = True):
     loop = asyncio.get_event_loop()
     try:
-        result = await loop.run_in_executor(executor, upscale_image_pipeline, b64_image, scale)
+        # Generate output path
+        output_file = os.path.join(UPLOAD_FOLDER, f"upscaled_{int(time.time() * 1000)}.jpg")
+        result = await loop.run_in_executor(
+            executor, 
+            upscale_image_pipeline, 
+            image_path, 
+            output_file,
+            target_resolution,
+            enhance_faces
+        )
+        
+        # Read upscaled image and convert to base64
+        if result["success"]:
+            with open(result["file_path"], "rb") as f:
+                img_bytes = f.read()
+                result["base64"] = base64.b64encode(img_bytes).decode()
+        
         return result
     except Exception as e:
         logger.error(f"Upscaling error: {e}")
@@ -168,17 +184,19 @@ async def validate_image_url(url: str) -> bool:
 @app.route('/upscale', methods=['POST', 'GET'])
 async def upscale_endpoint():
     img_url = ""
-    scale = 2
+    target_resolution = '4k'
+    enhance_faces = True
     start_time = time.time()
     
     try:
         if request.method == 'GET':
             img_url = request.args.get('img_url')
-            scale = int(request.args.get('scale', 2))
+            target_resolution = request.args.get('target_resolution', '4k').lower()
+            enhance_faces = request.args.get('enhance_faces', 'true').lower() == 'true'
             if not img_url:
                 return jsonify({"error": "img_url is required"}), 400
-            if scale not in [2, 4]:
-                return jsonify({"error": "Scale must be 2 or 4"}), 400
+            if target_resolution not in ['2k', '4k', '8k']:
+                return jsonify({"error": "Target resolution must be 2k, 4k, or 8k"}), 400
             
             # Validate URL format
             if not isinstance(img_url, str) or not (img_url.startswith('http://') or img_url.startswith('https://')):
@@ -199,32 +217,19 @@ async def upscale_endpoint():
 
             # Validate and prepare image
             try:
-                b64_image, width, height, img_format = validate_and_prepare_image(image_data)
+                temp_image_path, width, height, img_format = validate_and_prepare_image(image_data)
                 logger.info(f"Image validated: {width}x{height}, format: {img_format}, size: {len(image_data)} bytes")
             except Exception as e:
                 logger.error(f"Image validation failed: {e}")
                 return jsonify({"error": str(e)}), 400
             
-            # Check file sizes
-            b64_size = get_image_size_from_base64(b64_image)
-            if b64_size > MAX_FILE_SIZE:
-                return jsonify({
-                    "error": f"Image too large for upscaling: {b64_size} bytes (max: {MAX_FILE_SIZE})",
-                    "original_size": {"width": width, "height": height, "bytes": len(image_data)}
-                }), 400
-            
-            estimated_output_size = len(image_data) * (scale ** 2)
-            if estimated_output_size > MAX_FILE_SIZE * 2:
-                return jsonify({
-                    "error": f"Upscaled image would be too large: ~{estimated_output_size} bytes",
-                    "original_size": {"width": width, "height": height, "bytes": len(image_data)},
-                    "scale": scale
-                }), 400
-            
             # Process upscale
             try:
-                logger.info(f"Starting upscaling: {width}x{height} -> {width*scale}x{height*scale}")
-                result = await process_upscale(b64_image, scale)
+                logger.info(f"Starting upscaling: {width}x{height} -> target: {target_resolution}")
+                result = await process_upscale(temp_image_path, target_resolution, enhance_faces)
+                
+                if not result["success"]:
+                    return jsonify({"error": result["error"]}), 400
                 
                 processing_time = time.time() - start_time
                 logger.info(f"Upscaling completed in {processing_time:.2f}s")
@@ -233,16 +238,13 @@ async def upscale_endpoint():
                     "success": True,
                     "file_path": result["file_path"],
                     "base64": result["base64"],
-                    "original_size": {
-                        "width": width,
-                        "height": height,
-                        "bytes": len(image_data)
-                    },
-                    "upscaled_size": {
-                        "width": width * scale,
-                        "height": height * scale,
-                        "scale": scale
-                    },
+                    "original_size": result["original_size"],
+                    "upscaled_size": result["upscaled_size"],
+                    "target_resolution": result["target_resolution"],
+                    "total_scale": result["total_scale"],
+                    "upscaling_strategy": result["upscaling_strategy"],
+                    "faces_detected": result["faces_detected"],
+                    "faces_enhanced": result["faces_enhanced"],
                     "processing_time": round(processing_time, 2)
                 })
                 
@@ -255,9 +257,10 @@ async def upscale_endpoint():
             if not data:
                 return jsonify({"error": "No JSON data provided"}), 400
             img_url = data.get('img_url')
-            scale = data.get('scale', 2)
-            if scale not in [2, 4]:
-                return jsonify({"error": "Scale must be 2 or 4"}), 400
+            target_resolution = data.get('target_resolution', '4k').lower()
+            enhance_faces = data.get('enhance_faces', True)
+            if target_resolution not in ['2k', '4k', '8k']:
+                return jsonify({"error": "Target resolution must be 2k, 4k, or 8k"}), 400
             if not img_url:
                 return jsonify({"error": "img_url is required"}), 400
             if not isinstance(img_url, str) or not (img_url.startswith('http://') or img_url.startswith('https://')):
@@ -275,30 +278,18 @@ async def upscale_endpoint():
                 return jsonify({"error": str(e)}), 400
 
             try:
-                b64_image, width, height, img_format = validate_and_prepare_image(image_data)
+                temp_image_path, width, height, img_format = validate_and_prepare_image(image_data)
                 logger.info(f"Image validated: {width}x{height}, format: {img_format}, size: {len(image_data)} bytes")
             except Exception as e:
                 logger.error(f"Image validation failed: {e}")
                 return jsonify({"error": str(e)}), 400
             
-            b64_size = get_image_size_from_base64(b64_image)
-            if b64_size > MAX_FILE_SIZE:
-                return jsonify({
-                    "error": f"Image too large for upscaling: {b64_size} bytes (max: {MAX_FILE_SIZE})",
-                    "original_size": {"width": width, "height": height, "bytes": len(image_data)}
-                }), 400
-            
-            estimated_output_size = len(image_data) * (scale ** 2)
-            if estimated_output_size > MAX_FILE_SIZE * 2:
-                return jsonify({
-                    "error": f"Upscaled image would be too large: ~{estimated_output_size} bytes",
-                    "original_size": {"width": width, "height": height, "bytes": len(image_data)},
-                    "scale": scale
-                }), 400
-            
             try:
-                logger.info(f"Starting upscaling: {width}x{height} -> {width*scale}x{height*scale}")
-                result = await process_upscale(b64_image, scale)
+                logger.info(f"Starting upscaling: {width}x{height} -> target: {target_resolution}")
+                result = await process_upscale(temp_image_path, target_resolution, enhance_faces)
+                
+                if not result["success"]:
+                    return jsonify({"error": result["error"]}), 400
                 
                 processing_time = time.time() - start_time
                 logger.info(f"Upscaling completed in {processing_time:.2f}s")
@@ -307,16 +298,13 @@ async def upscale_endpoint():
                     "success": True,
                     "file_path": result["file_path"],
                     "base64": result["base64"],
-                    "original_size": {
-                        "width": width,
-                        "height": height,
-                        "bytes": len(image_data)
-                    },
-                    "upscaled_size": {
-                        "width": width * scale,
-                        "height": height * scale,
-                        "scale": scale
-                    },
+                    "original_size": result["original_size"],
+                    "upscaled_size": result["upscaled_size"],
+                    "target_resolution": result["target_resolution"],
+                    "total_scale": result["total_scale"],
+                    "upscaling_strategy": result["upscaling_strategy"],
+                    "faces_detected": result["faces_detected"],
+                    "faces_enhanced": result["faces_enhanced"],
                     "processing_time": round(processing_time, 2)
                 })
                 
@@ -335,14 +323,13 @@ async def health_check():
         "timestamp": time.time(),
         "max_file_size_mb": MAX_FILE_SIZE / 1024 / 1024,
         "max_dimension": MAX_IMAGE_DIMENSION,
-        "supported_scales": [2, 4],
+        "supported_resolutions": ["2k", "4k", "8k"],
         "cleanup_interval_minutes": CLEANUP_INTERVAL / 60,
         "file_max_age_minutes": FILE_MAX_AGE / 60
     })
 
 @app.route('/status', methods=['GET'])
 async def status():
-    from api.upscaler_inference import MODEL_SERVERS
     upload_stats = {"total_files": 0, "total_size_mb": 0}
     try:
         files_pattern = os.path.join(UPLOAD_FOLDER, "*")
@@ -355,9 +342,9 @@ async def status():
     
     return jsonify({
         "status": "running",
-        "model_servers": len(MODEL_SERVERS),
         "thread_pool_workers": executor._max_workers,
         "supported_formats": list(ALLOWED_EXTENSIONS),
+        "supported_resolutions": ["2k", "4k", "8k"],
         "cleanup_task_running": cleanup_running,
         "upload_folder_stats": upload_stats,
         "limits": {
