@@ -64,10 +64,8 @@ class ipcModules:
 
     def enhance_x2(self, img_data: dict, outscale=2):
         try:
-            # Reconstruct numpy array from serialized data
             img_array = np.frombuffer(img_data['data'], dtype=np.uint8).reshape(img_data['shape'])
             upscaled_img, _ = self.upsampler_x2.enhance(img_array, outscale=outscale)
-            # Serialize back
             return {
                 'data': upscaled_img.tobytes(),
                 'shape': upscaled_img.shape,
@@ -79,10 +77,8 @@ class ipcModules:
 
     def enhance_x4(self, img_data: dict, outscale=4):
         try:
-            # Reconstruct numpy array from serialized data
             img_array = np.frombuffer(img_data['data'], dtype=np.uint8).reshape(img_data['shape'])
             upscaled_img, _ = self.upsampler_x4.enhance(img_array, outscale=outscale)
-            # Serialize back
             return {
                 'data': upscaled_img.tobytes(),
                 'shape': upscaled_img.shape,
@@ -94,7 +90,6 @@ class ipcModules:
 
     def enhance_face_x2(self, img_data: dict):
         try:
-            # Reconstruct numpy array from serialized data
             img_array = np.frombuffer(img_data['data'], dtype=np.uint8).reshape(img_data['shape'])
             _, _, face_restored = self.face_enhancer_x2.enhance(
                 img_array,
@@ -102,7 +97,6 @@ class ipcModules:
                 only_center_face=False,
                 paste_back=True
             )
-            # Serialize back
             return {
                 'data': face_restored.tobytes(),
                 'shape': face_restored.shape,
@@ -114,7 +108,6 @@ class ipcModules:
 
     def enhance_face_x4(self, img_data: dict):
         try:
-            # Reconstruct numpy array from serialized data
             img_array = np.frombuffer(img_data['data'], dtype=np.uint8).reshape(img_data['shape'])
             _, _, face_restored = self.face_enhancer_x4.enhance(
                 img_array,
@@ -171,7 +164,7 @@ def start_server_on_port(port):
         logger.error(f"Error on port {port}: {e}")
 
 if __name__ == "__main__":
-    ports = [6002, 6003]
+    ports = [6002]
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     

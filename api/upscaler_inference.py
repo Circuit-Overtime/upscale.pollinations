@@ -11,7 +11,7 @@ class modelManager(BaseManager):
 
 modelManager.register("ipcService")
 
-IPC_PORTS = [6002, 6003]
+IPC_PORTS = [6002]
 current_port_index = 0
 
 def get_model_server():
