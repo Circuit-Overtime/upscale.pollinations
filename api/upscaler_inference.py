@@ -4,7 +4,7 @@ from PIL import Image
 from multiprocessing.managers import BaseManager
 import torch
 from loguru import logger
-from config import MAX_8K_DIMENSION, MAX_4K_DIMENSION, MAX_2K_DIMENSION
+from config import MAX_8K_DIMENSION, MAX_4K_DIMENSION, MAX_2K_DIMENSION, RESOLUTION_TARGETS
 
 class modelManager(BaseManager):
     pass
@@ -26,27 +26,78 @@ def get_model_server():
         logger.error(f"Failed to connect to model server on port {port}: {e}")
         raise
 
-def calculate_optimal_scale(image_width: int, image_height: int, user_scale: int) -> tuple:
-    max_dimension = MAX_8K_DIMENSION
-    direct_width = image_width * user_scale
-    direct_height = image_height * user_scale
-    if max(direct_width, direct_height) <= max_dimension:
-        logger.info(f"Using direct {user_scale}x scale: {direct_width}x{direct_height}")
-        return user_scale, direct_width, direct_height, True
-    max_scale_width = max_dimension / image_width
-    max_scale_height = max_dimension / image_height
-    optimal_scale = min(max_scale_width, max_scale_height)
-    optimal_scale = int(optimal_scale * 2) / 2
-    if optimal_scale < 2:
-        logger.warning(f"Image too large for 2x upscaling within 8K limit")
-        optimal_scale = 1
-        can_upscale = False
-    else:
-        can_upscale = True
-    final_width = int(image_width * optimal_scale)
-    final_height = int(image_height * optimal_scale)
-    logger.info(f"Adjusted scale from {user_scale}x to {optimal_scale}x to fit 8K: {final_width}x{final_height}")
-    return optimal_scale, final_width, final_height, can_upscale
+def parse_target_resolution(target: str) -> int:
+    try:
+        target_lower = str(target).lower().strip()
+        if target_lower in RESOLUTION_TARGETS:
+            return RESOLUTION_TARGETS[target_lower]
+        pixel_value = int(target)
+        if pixel_value > 0:
+            return pixel_value
+        logger.warning(f"Invalid target resolution '{target}', defaulting to 4K")
+        return RESOLUTION_TARGETS['4k']
+    except (ValueError, TypeError):
+        logger.warning(f"Could not parse target resolution '{target}', defaulting to 4K")
+        return RESOLUTION_TARGETS['4k']
+
+def calculate_upscale_strategy(image_width: int, image_height: int, target_max_dimension: int) -> dict:
+    max_dimension = max(target_max_dimension, MAX_8K_DIMENSION)
+    max_current_dimension = max(image_width, image_height)
+    if max_current_dimension >= max_dimension:
+        logger.info(f"Image already at or exceeds target dimension {max_current_dimension}px >= {max_dimension}px")
+        return {
+            'can_upscale': False,
+            'strategy': [],
+            'final_width': image_width,
+            'final_height': image_height,
+            'total_scale': 1.0,
+            'reason': 'Image already meets or exceeds target resolution'
+        }
+    strategy = []
+    current_width = image_width
+    current_height = image_height
+    total_scale = 1.0
+    for pass_num in range(2):
+        next_width = current_width * 2
+        next_height = current_height * 2
+        next_max_dimension = max(next_width, next_height)
+        if next_max_dimension <= max_dimension:
+            strategy.append(2)
+            current_width = next_width
+            current_height = next_height
+            total_scale *= 2
+            logger.info(f"Pass {pass_num + 1}: Can apply 2x upscaling -> {current_width}x{current_height}")
+        else:
+            logger.info(f"Pass {pass_num + 1}: Cannot apply 2x (would be {next_width}x{next_height}, exceeds {max_dimension}px)")
+            break
+    if len(strategy) == 0:
+        max_scale_width = max_dimension / image_width
+        max_scale_height = max_dimension / image_height
+        optimal_scale = min(max_scale_width, max_scale_height)
+        if optimal_scale >= 2:
+            strategy.append(2)
+            current_width = image_width * 2
+            current_height = image_height * 2
+            total_scale = 2.0
+            logger.info(f"Using 2x upscaling: {current_width}x{current_height}")
+        else:
+            logger.warning(f"Image too large for any upscaling (max possible scale: {optimal_scale:.2f}x)")
+            return {
+                'can_upscale': False,
+                'strategy': [],
+                'final_width': image_width,
+                'final_height': image_height,
+                'total_scale': 1.0,
+                'reason': f'Image too large for upscaling within limits (max scale: {optimal_scale:.2f}x)'
+            }
+    return {
+        'can_upscale': len(strategy) > 0,
+        'strategy': strategy,
+        'final_width': current_width,
+        'final_height': current_height,
+        'total_scale': total_scale,
+        'reason': f'Applied {len(strategy)} upscaling pass(es) with total scale {total_scale}x'
+    }
 
 def detect_faces(image_np):
     try:
@@ -58,16 +109,21 @@ def detect_faces(image_np):
         logger.warning(f"Face detection failed: {e}")
         return np.array([])
 
+def apply_sequential_upscaling(img_array: np.ndarray, strategy: list, enhance_faces: bool = True) -> np.ndarray:
+    current_img = img_array
+    for pass_num, scale in enumerate(strategy, 1):
+        logger.info(f"Applying upscaling pass {pass_num}/{len(strategy)} with scale {scale}x")
+        current_img = upscale_with_model_server(current_img, scale, enhance_faces=enhance_faces)
+    return current_img
+
 def upscale_with_model_server(img_array: np.ndarray, scale: int, enhance_faces: bool = True) -> np.ndarray:
     try:
         model_service = get_model_server()
-        # Serialize image for transmission
         img_data = {
             'data': img_array.tobytes(),
             'shape': img_array.shape,
             'dtype': str(img_array.dtype)
         }
-        
         if scale == 2:
             if enhance_faces:
                 logger.info("Upscaling with 2x face enhancement")
@@ -84,39 +140,39 @@ def upscale_with_model_server(img_array: np.ndarray, scale: int, enhance_faces: 
                 result = model_service.enhance_x4(img_data)
         else:
             raise ValueError(f"Invalid scale: {scale}. Must be 2 or 4")
-        
-        # Deserialize result
         upscaled_img = np.frombuffer(result['data'], dtype=np.uint8).reshape(result['shape'])
         return upscaled_img
     except Exception as e:
         logger.error(f"Error during model server upscaling: {e}")
         raise
 
-def upscale_image_pipeline(image_path: str, output_path: str, scale: int = 2, enhance_faces: bool = True) -> dict:
+def upscale_image_pipeline(image_path: str, output_path: str, target_resolution: str = '4k', enhance_faces: bool = True) -> dict:
     try:
         image_pil = Image.open(image_path).convert('RGB')
         image_np = np.array(image_pil)
         original_height, original_width = image_np.shape[:2]
         logger.info(f"Original image size: {original_width}x{original_height}")
-        if scale not in [2, 4]:
-            logger.warning(f"Invalid scale {scale}, defaulting to 2")
-            scale = 2
-        optimal_scale, final_width, final_height, can_upscale = calculate_optimal_scale(
-            original_width, original_height, scale
+        target_max_dimension = parse_target_resolution(target_resolution)
+        logger.info(f"Target resolution: {target_resolution} ({target_max_dimension}px max dimension)")
+        strategy_result = calculate_upscale_strategy(
+            original_width, original_height, target_max_dimension
         )
-        if not can_upscale:
-            logger.error("Image too large to upscale while maintaining 8K limit")
+        if not strategy_result['can_upscale']:
+            logger.warning(f"Cannot upscale: {strategy_result['reason']}")
             return {
                 "success": False,
-                "error": "Image too large for upscaling",
-                "original_size": {"width": original_width, "height": original_height}
+                "error": strategy_result['reason'],
+                "original_size": {"width": original_width, "height": original_height},
+                "target_resolution": target_resolution,
+                "target_max_dimension": target_max_dimension
             }
         faces = []
         if enhance_faces:
             faces = detect_faces(image_np)
             if len(faces) > 0:
                 logger.info(f"Detected {len(faces)} face(s)")
-        upscaled_img = upscale_with_model_server(image_np, int(optimal_scale), enhance_faces=(len(faces) > 0))
+        logger.info(f"Applying upscaling strategy: {strategy_result['strategy']}")
+        upscaled_img = apply_sequential_upscaling(image_np, strategy_result['strategy'], enhance_faces=(len(faces) > 0))
         upscaled_pil = Image.fromarray(upscaled_img.astype(np.uint8))
         upscaled_pil.save(output_path, format="JPEG", quality=95)
         logger.info(f"Upscaled image saved to {output_path}")
@@ -124,11 +180,14 @@ def upscale_image_pipeline(image_path: str, output_path: str, scale: int = 2, en
             "success": True,
             "file_path": output_path,
             "original_size": {"width": original_width, "height": original_height},
-            "upscaled_size": {"width": final_width, "height": final_height},
-            "requested_scale": scale,
-            "applied_scale": optimal_scale,
+            "upscaled_size": {"width": strategy_result['final_width'], "height": strategy_result['final_height']},
+            "target_resolution": target_resolution,
+            "target_max_dimension": target_max_dimension,
+            "upscaling_strategy": strategy_result['strategy'],
+            "total_scale": strategy_result['total_scale'],
             "faces_detected": len(faces),
-            "faces_enhanced": enhance_faces and len(faces) > 0
+            "faces_enhanced": enhance_faces and len(faces) > 0,
+            "strategy_reason": strategy_result['reason']
         }
     except Exception as e:
         logger.error(f"Upscaling pipeline error: {e}")
@@ -140,5 +199,5 @@ def upscale_image_pipeline(image_path: str, output_path: str, scale: int = 2, en
 if __name__ == "__main__":
     input_image = "output.jpg"
     output_image = "upscaled_output.jpg"
-    result = upscale_image_pipeline(input_image, output_image, scale=4, enhance_faces=True)
+    result = upscale_image_pipeline(input_image, output_image, target_resolution='8k', enhance_faces=True)
     print(f"Processing complete: {result}")

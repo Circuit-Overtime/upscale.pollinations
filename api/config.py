@@ -1,6 +1,6 @@
-MODEL_DIR = "models"
-MODEL_PATH_x4 = "models/RealESRGAN_x4plus.pth"
-MODEL_PATH_x2 = "models/RealESRGAN_x2plus.pth"
+MODEL_DIR = "model_cache"
+MODEL_PATH_x4 = "model_cache/RealESRGAN_x4plus.pth"
+MODEL_PATH_x2 = "model_cache/RealESRGAN_x2plus.pth"
 FACE_ENHANCER_MODEL = "model_cache/GFPGANv1.4.pth"
 NUM_SERVERS = 2
 MAX_FILE_SIZE = 7 * 1024 * 1024  
@@ -13,7 +13,10 @@ FILE_MAX_AGE = 300  #in seconds has been counted
 MAX_8K_DIMENSION = 7680  
 MAX_4K_DIMENSION = 3840  
 MAX_2K_DIMENSION = 2048  
-MODEL_URLS = {
-    "RealESRGAN_x2plus.pth": "https://github.com/Circuit-Overtime/upscale.pollinations/releases/download/1.0.0/RealESRGAN_x2plus.pth",
-    "RealESRGAN_x4plus.pth": "https://github.com/Circuit-Overtime/upscale.pollinations/releases/download/1.0.0/RealESRGAN_x4plus.pth"
+
+# Resolution target mapping
+RESOLUTION_TARGETS = {
+    '2k': 2048,
+    '4k': 3840,
+    '8k': 7680
 }
