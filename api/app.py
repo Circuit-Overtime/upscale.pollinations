@@ -8,7 +8,7 @@ import glob
 from PIL import Image
 from loguru import logger
 import time
-from esrgan import upscale_b64
+from api.upscaler_inference import upscale_image_pipeline
 from concurrent.futures import ThreadPoolExecutor
 from quart_cors import cors
 from config import UPLOAD_FOLDER, MAX_FILE_SIZE, MAX_IMAGE_DIMENSION, ALLOWED_EXTENSIONS, CLEANUP_INTERVAL, FILE_MAX_AGE
@@ -141,7 +141,7 @@ def validate_and_prepare_image(image_data: bytes):
 async def process_upscale(b64_image: str, scale: int):
     loop = asyncio.get_event_loop()
     try:
-        result = await loop.run_in_executor(executor, upscale_b64, b64_image, scale)
+        result = await loop.run_in_executor(executor, upscale_image_pipeline, b64_image, scale)
         return result
     except Exception as e:
         logger.error(f"Upscaling error: {e}")
@@ -342,7 +342,7 @@ async def health_check():
 
 @app.route('/status', methods=['GET'])
 async def status():
-    from esrgan import MODEL_SERVERS
+    from api.upscaler_inference import MODEL_SERVERS
     upload_stats = {"total_files": 0, "total_size_mb": 0}
     try:
         files_pattern = os.path.join(UPLOAD_FOLDER, "*")
