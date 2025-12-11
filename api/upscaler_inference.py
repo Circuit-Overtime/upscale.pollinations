@@ -61,34 +61,32 @@ def detect_faces(image_np):
 def upscale_with_model_server(img_array: np.ndarray, scale: int, enhance_faces: bool = True) -> np.ndarray:
     try:
         model_service = get_model_server()
+        # Serialize image for transmission
+        img_data = {
+            'data': img_array.tobytes(),
+            'shape': img_array.shape,
+            'dtype': str(img_array.dtype)
+        }
+        
         if scale == 2:
             if enhance_faces:
                 logger.info("Upscaling with 2x face enhancement")
-                upscaled_img = model_service.enhance_face_x2(img_array.tobytes())
-                if isinstance(upscaled_img, bytes):
-                    height, width = int(img_array.shape[0] * 2), int(img_array.shape[1] * 2)
-                    upscaled_img = np.frombuffer(upscaled_img, dtype=np.uint8).reshape((height, width, 3))
+                result = model_service.enhance_face_x2(img_data)
             else:
                 logger.info("Upscaling with 2x standard enhancement")
-                upscaled_img = model_service.enhance_x2(img_array.tobytes())
-                if isinstance(upscaled_img, bytes):
-                    height, width = int(img_array.shape[0] * 2), int(img_array.shape[1] * 2)
-                    upscaled_img = np.frombuffer(upscaled_img, dtype=np.uint8).reshape((height, width, 3))
+                result = model_service.enhance_x2(img_data)
         elif scale == 4:
             if enhance_faces:
                 logger.info("Upscaling with 4x face enhancement")
-                upscaled_img = model_service.enhance_face_x4(img_array.tobytes())
-                if isinstance(upscaled_img, bytes):
-                    height, width = int(img_array.shape[0] * 4), int(img_array.shape[1] * 4)
-                    upscaled_img = np.frombuffer(upscaled_img, dtype=np.uint8).reshape((height, width, 3))
+                result = model_service.enhance_face_x4(img_data)
             else:
                 logger.info("Upscaling with 4x standard enhancement")
-                upscaled_img = model_service.enhance_x4(img_array.tobytes())
-                if isinstance(upscaled_img, bytes):
-                    height, width = int(img_array.shape[0] * 4), int(img_array.shape[1] * 4)
-                    upscaled_img = np.frombuffer(upscaled_img, dtype=np.uint8).reshape((height, width, 3))
+                result = model_service.enhance_x4(img_data)
         else:
             raise ValueError(f"Invalid scale: {scale}. Must be 2 or 4")
+        
+        # Deserialize result
+        upscaled_img = np.frombuffer(result['data'], dtype=np.uint8).reshape(result['shape'])
         return upscaled_img
     except Exception as e:
         logger.error(f"Error during model server upscaling: {e}")
@@ -140,7 +138,7 @@ def upscale_image_pipeline(image_path: str, output_path: str, scale: int = 2, en
         }
 
 if __name__ == "__main__":
-    input_image = "original_image.jpg"
+    input_image = "output.jpg"
     output_image = "upscaled_output.jpg"
     result = upscale_image_pipeline(input_image, output_image, scale=4, enhance_faces=True)
     print(f"Processing complete: {result}")

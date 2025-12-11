@@ -62,44 +62,72 @@ class ipcModules:
         
         logger.info("All models loaded successfully")
 
-    def enhance_x2(self, img_array, outscale=2):
+    def enhance_x2(self, img_data: dict, outscale=2):
         try:
+            # Reconstruct numpy array from serialized data
+            img_array = np.frombuffer(img_data['data'], dtype=np.uint8).reshape(img_data['shape'])
             upscaled_img, _ = self.upsampler_x2.enhance(img_array, outscale=outscale)
-            return upscaled_img
+            # Serialize back
+            return {
+                'data': upscaled_img.tobytes(),
+                'shape': upscaled_img.shape,
+                'dtype': str(upscaled_img.dtype)
+            }
         except Exception as e:
             logger.error(f"Error in x2 enhancement: {e}")
             raise
 
-    def enhance_x4(self, img_array, outscale=4):
+    def enhance_x4(self, img_data: dict, outscale=4):
         try:
+            # Reconstruct numpy array from serialized data
+            img_array = np.frombuffer(img_data['data'], dtype=np.uint8).reshape(img_data['shape'])
             upscaled_img, _ = self.upsampler_x4.enhance(img_array, outscale=outscale)
-            return upscaled_img
+            # Serialize back
+            return {
+                'data': upscaled_img.tobytes(),
+                'shape': upscaled_img.shape,
+                'dtype': str(upscaled_img.dtype)
+            }
         except Exception as e:
             logger.error(f"Error in x4 enhancement: {e}")
             raise
 
-    def enhance_face_x2(self, img_array):
+    def enhance_face_x2(self, img_data: dict):
         try:
+            # Reconstruct numpy array from serialized data
+            img_array = np.frombuffer(img_data['data'], dtype=np.uint8).reshape(img_data['shape'])
             _, _, face_restored = self.face_enhancer_x2.enhance(
                 img_array,
                 has_aligned=False,
                 only_center_face=False,
                 paste_back=True
             )
-            return face_restored
+            # Serialize back
+            return {
+                'data': face_restored.tobytes(),
+                'shape': face_restored.shape,
+                'dtype': str(face_restored.dtype)
+            }
         except Exception as e:
             logger.error(f"Error in x2 face enhancement: {e}")
             raise
 
-    def enhance_face_x4(self, img_array):
+    def enhance_face_x4(self, img_data: dict):
         try:
+            # Reconstruct numpy array from serialized data
+            img_array = np.frombuffer(img_data['data'], dtype=np.uint8).reshape(img_data['shape'])
             _, _, face_restored = self.face_enhancer_x4.enhance(
                 img_array,
                 has_aligned=False,
                 only_center_face=False,
                 paste_back=True
             )
-            return face_restored
+            # Serialize back
+            return {
+                'data': face_restored.tobytes(),
+                'shape': face_restored.shape,
+                'dtype': str(face_restored.dtype)
+            }
         except Exception as e:
             logger.error(f"Error in x4 face enhancement: {e}")
             raise

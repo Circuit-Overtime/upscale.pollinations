@@ -5,3 +5,4 @@ model_cache/
 __pycache__/
 uploads/
 test_images/
+gfpgan/
