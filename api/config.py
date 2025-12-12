@@ -7,14 +7,12 @@ MAX_FILE_SIZE = 7 * 1024 * 1024
 MAX_IMAGE_DIMENSION = 2048 
 UPLOAD_FOLDER = "uploads"
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp', 'bmp'}
-CLEANUP_INTERVAL = 300  #in seconds has been counted
-FILE_MAX_AGE = 300  #in seconds has been counted
+CLEANUP_INTERVAL = 300  
+FILE_MAX_AGE = 300  
 
 MAX_8K_DIMENSION = 7680  
 MAX_4K_DIMENSION = 3840  
 MAX_2K_DIMENSION = 2048  
-
-# Resolution target mapping
 RESOLUTION_TARGETS = {
     '2k': 2048,
     '4k': 3840,
