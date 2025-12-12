@@ -269,7 +269,7 @@ def upscale_image_pipeline(image_path: str, output_path: str, target_resolution:
         }
 
 if __name__ == "__main__":
-    input_image = "output.jpg"
+    input_image = "in.jpg"
     output_image = "upscaled_output.jpg"
-    result = upscale_image_pipeline(input_image, output_image, target_resolution='8k', enhance_faces=True)
+    result = upscale_image_pipeline(input_image, output_image, target_resolution='4k', enhance_faces=True)
     print(f"Processing complete: {result}")
