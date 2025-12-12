@@ -21,10 +21,10 @@ def apply_sequential_upscaling(img_array: np.ndarray, strategy: list, enhance_fa
     current_img = img_array
     for pass_num, scale in enumerate(strategy, 1):
         logger.info(f"Applying upscaling pass {pass_num}/{len(strategy)} with scale {scale}x")
-        current_img = upscale_with_model_server(current_img, scale, enhance_faces=enhance_faces)
+        current_img = upscale_image(current_img, scale, enhance_faces=enhance_faces)
     return current_img
 
-def upscale_with_model_server(img_array: np.ndarray, scale: int, enhance_faces: bool = True) -> np.ndarray:
+def upscale_image(img_array: np.ndarray, scale: int, enhance_faces: bool = True) -> np.ndarray:
     try:
         img_data = {
             'data': img_array.tobytes(),

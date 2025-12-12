@@ -4,7 +4,7 @@ import base64
 import os
 from loguru import logger
 import time
-from upscaler import upscale_image_pipeline
+from upscale import upscale_image_pipeline
 from quart_cors import cors
 from config import UPLOAD_FOLDER, MAX_BASE64_SIZE
 from utility import validate_and_prepare_image, executor
