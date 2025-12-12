@@ -6,19 +6,20 @@ A high-performance image upscaling service using Real-ESRGAN models with multi-s
 ## Features
 
 - **2x and 4x Image Upscaling** - Real-ESRGAN model-based enhancement
+- **Face Enhancement** - Automatic face detection and enhancement during upscaling
 - **Multi-Server Architecture** - 5 concurrent model servers for load balancing
 - **Async Processing** - Built with Quart for async HTTP handling
 - **Automatic Cleanup** - Background task removes files older than 5 minutes
 - **Base64 Support** - Direct base64 image input/output
-- **Validation** - File size (7MB max) and dimension (2048px max) limits
+- **Validation** - File size (7MB max) and dimension (2048px max) limits, with dynamic thresholding per target resolution
 - **Health Monitoring** - Status and health check endpoints
 
 ## Architecture
 
 - **model_server.py** - RealESRGAN inference servers (port 5002+)
 - **esrgan.py** - Client with round-robin server selection and image conversion
+- **upscale.py** - Core upscaling pipeline, face detection, and sequential upscaling logic
 - **app.py** - Quart async API server (port 8000)
-
 
 ## Workflow Diagrams
 
@@ -33,13 +34,12 @@ graph TD
     E -->|Failed| F["Return 400 Error"]
     E -->|Success| G["Validate & Prepare Image"]
     G -->|Invalid| H["Return 400 Error"]
-    G -->|Valid| I["Check File Size Limits"]
+    G -->|Valid| I["Check File Size & Dimension Limits"]
     I -->|Exceeds Limit| J["Return 400 Error"]
-    I -->|Within Limit| K["Queue Upscaling Task"]
-    K --> L["process_upscale"]
-    L --> M["ThreadPoolExecutor"]
-    M --> N["upscale_b64"]
-    N --> O["Response with Base64 & File Path"]
+    I -->|Within Limit| K["Determine Upscaling Strategy"]
+    K --> L["Detect Faces (if enabled)"]
+    L --> M["Apply Sequential Upscaling"]
+    M --> N["Save & Respond with File Path/Base64"]
 ```
 
 ### Server Architecture
@@ -49,11 +49,11 @@ graph TB
     subgraph Client["Client Layer"]
         API["Quart API<br/>Port 8000"]
     end
-    
+
     subgraph Processing["Processing Layer"]
         ESRGAN["esrgan.py<br/>Round-Robin<br/>Load Balancer"]
     end
-    
+
     subgraph Inference["Inference Layer"]
         S1["Model Server 1<br/>Port 5002"]
         S2["Model Server 2<br/>Port 5003"]
@@ -61,11 +61,11 @@ graph TB
         S4["Model Server 4<br/>Port 5005"]
         S5["Model Server 5<br/>Port 5006"]
     end
-    
+
     subgraph Storage["Storage"]
         UPLOADS["uploads/<br/>File Cache"]
     end
-    
+
     API --> ESRGAN
     ESRGAN --> S1
     ESRGAN --> S2
@@ -83,21 +83,17 @@ graph TB
 
 ```mermaid
 graph LR
-    A["Input Image<br/>RGB/RGBA"] --> B["Base64 Encode"]
-    B --> C["Select Model Server<br/>Round-Robin"]
-    C --> D{Image Type?}
-    D -->|RGB| E["enhance_x2/x4"]
-    D -->|RGBA| F["Split Channels"]
-    F --> G["Upscale RGB"]
-    F --> H["Upscale Alpha"]
-    G --> I["Merge Channels"]
-    H --> I
-    E --> J["Convert to PIL Image"]
+    A["Input Image<br/>RGB"] --> B["Face Detection"]
+    B -->|Faces Found| C["Enable Face Enhancement"]
+    B -->|No Faces| D["Standard Enhancement"]
+    C --> E["Determine Upscaling Strategy"]
+    D --> E
+    E --> F["Apply Sequential Upscaling<br/>2x/4x Passes"]
+    F --> G["Convert to PIL Image"]
+    G --> H["Save to Disk"]
+    G --> I["Encode to Base64"]
+    H --> J["Return File Path<br/>& Base64"]
     I --> J
-    J --> K["Save to Disk"]
-    J --> L["Encode to Base64"]
-    K --> M["Return File Path<br/>& Base64"]
-    L --> M
 ```
 
 ### Background Cleanup Task
@@ -118,10 +114,10 @@ graph TD
     J --> B
 ```
 
-
 ## API Endpoints
 
-- `POST /upscale` - Upscale image (required: `img_url`, optional: `scale` [2/4])
+- `POST /upscale` - Upscale image (required: `img_url`, optional: `target_resolution` [2k/4k/8k], `enhance_faces` [true/false])
 - `GET /health` - Health check with limits
 - `GET /status` - Server and resource status
 - `POST /cleanup` - Manual file cleanup
+
