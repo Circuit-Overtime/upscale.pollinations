@@ -1,9 +1,6 @@
-import asyncio
 import base64
 import os
 import requests
-from http.server import HTTPServer, SimpleHTTPRequestHandler
-import threading
 
 API_URL = "http://localhost:8000/upscale"
 IMAGE_PATH = "output.jpg"
@@ -13,23 +10,14 @@ def test_upscale_endpoint():
         print(f"Test image '{IMAGE_PATH}' not found.")
         return
 
-    # Start a simple HTTP server to serve the image locally
+    # Read and encode the image as base64
+    with open(IMAGE_PATH, "rb") as img_file:
+        image_b64 = base64.b64encode(img_file.read()).decode()
 
-    class SilentHandler(SimpleHTTPRequestHandler):
-        def log_message(self, format, *args):
-            pass
-
-    def run_server():
-        httpd = HTTPServer(('localhost', 9000), SilentHandler)
-        httpd.serve_forever()
-
-    server_thread = threading.Thread(target=run_server, daemon=True)
-    server_thread.start()
-
-    img_url = "https://nzptsfd.telangana.gov.in/newResources/css/img/DownMenu/1.%20Plain%20Tiger.jpg"
     payload = {
-        "img_url": img_url,
+        "image_b64": image_b64,
         "target_resolution": "4k",
+        "enhance_faces": True
     }
 
     print("Sending request to /upscale endpoint...")
