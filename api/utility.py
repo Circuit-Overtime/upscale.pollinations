@@ -1,10 +1,8 @@
 from config import MAX_8K_DIMENSION, MAX_4K_DIMENSION, MAX_2K_DIMENSION, RESOLUTION_TARGETS, UPSCALING_THRESHOLDS
 from loguru import logger
 from PIL import Image
-import aiohttp
 from config import MAX_FILE_SIZE, UPLOAD_FOLDER, MAX_IMAGE_DIMENSION
 import os
-import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import io
 import time 
@@ -127,31 +125,6 @@ def calculate_upscale_strategy(image_width: int, image_height: int, target_max_d
     }
 
 
-
-async def download_image(url: str) -> bytes:
-    try:
-        timeout = aiohttp.ClientTimeout(total=30)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(url) as response:
-                if response.status != 200:
-                    raise Exception(f"HTTP {response.status}: Failed to download image")
-                
-                content_length = response.headers.get('content-length')
-                if content_length and int(content_length) > MAX_FILE_SIZE:
-                    raise Exception(f"Image too large: {content_length} bytes (max: {MAX_FILE_SIZE})")
-                
-                data = b""
-                async for chunk in response.content.iter_chunked(8192):
-                    data += chunk
-                    if len(data) > MAX_FILE_SIZE:
-                        raise Exception(f"Image too large: {len(data)} bytes (max: {MAX_FILE_SIZE})")
-                
-                return data
-    except asyncio.TimeoutError:
-        raise Exception("Timeout downloading image")
-    except Exception as e:
-        raise Exception(f"Failed to download image: {str(e)}")
-
 def validate_and_prepare_image(image_data: bytes):
     try:
         if len(image_data) > MAX_FILE_SIZE:
@@ -162,30 +135,9 @@ def validate_and_prepare_image(image_data: bytes):
         if width > MAX_IMAGE_DIMENSION or height > MAX_IMAGE_DIMENSION:
             raise Exception(f"Image dimensions too large: {width}x{height} (max: {MAX_IMAGE_DIMENSION})")
         
-        # Save to temp file for processing
         temp_file = os.path.join(UPLOAD_FOLDER, f"temp_{int(time.time() * 1000)}.jpg")
         img.save(temp_file, format="JPEG", quality=95)
         
         return temp_file, width, height, img.format
     except Exception as e:
         raise Exception(f"Invalid image: {str(e)}")
-
-
-
-async def validate_image_url(url: str) -> bool:
-    try:
-        timeout = aiohttp.ClientTimeout(total=10)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.head(url, allow_redirects=True) as response:
-                if response.status != 200:
-                    return False
-                
-                content_type = response.headers.get('content-type', '').lower()
-                valid_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/x-icon']
-                
-                if not any(vtype in content_type for vtype in valid_types):
-                    return False
-                
-                return True
-    except Exception:
-        return False
