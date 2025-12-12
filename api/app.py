@@ -8,18 +8,17 @@ import glob
 from PIL import Image
 from loguru import logger
 import time
-from upscaler_inference import upscale_image_pipeline
-from concurrent.futures import ThreadPoolExecutor
+from upscaler import upscale_image_pipeline
 from quart_cors import cors
 from config import UPLOAD_FOLDER, MAX_FILE_SIZE, MAX_IMAGE_DIMENSION, ALLOWED_EXTENSIONS, CLEANUP_INTERVAL, FILE_MAX_AGE
+from utility import validate_and_prepare_image, download_image, validate_image_url, executor
+
 app = Quart(__name__)
 cors(app, allow_origin="*")
-
-executor = ThreadPoolExecutor(max_workers=10)
-
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 cleanup_task = None
 cleanup_running = True
+
 
 async def cleanup_old_files():
     global cleanup_running
@@ -54,9 +53,32 @@ async def cleanup_old_files():
                 
         except Exception as e:
             logger.error(f"Cleanup task error: {e}")
-        
-        # Wait for next cleanup cycle
         await asyncio.sleep(CLEANUP_INTERVAL)
+
+
+async def process_upscale(image_path: str, target_resolution: str, enhance_faces: bool = True):
+    loop = asyncio.get_event_loop()
+    try:
+        # Generate output path
+        output_file = os.path.join(UPLOAD_FOLDER, f"upscaled_{int(time.time() * 1000)}.jpg")
+        result = await loop.run_in_executor(
+            executor, 
+            upscale_image_pipeline, 
+            image_path, 
+            output_file,
+            target_resolution,
+            enhance_faces
+        )
+        if result["success"]:
+            with open(result["file_path"], "rb") as f:
+                img_bytes = f.read()
+                result["base64"] = base64.b64encode(img_bytes).decode()
+        
+        return result
+    except Exception as e:
+        logger.error(f"Upscaling error: {e}")
+        raise
+
 
 @app.before_serving
 async def startup():
@@ -80,103 +102,6 @@ async def shutdown():
     
     logger.info("Background tasks stopped")
 
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
-def get_image_size_from_base64(b64_string):
-    try:
-        decoded = base64.b64decode(b64_string)
-        return len(decoded)
-    except Exception:
-        return 0
-
-def get_image_dimensions(img):
-    return img.size  
-
-async def download_image(url: str) -> bytes:
-    try:
-        timeout = aiohttp.ClientTimeout(total=30)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(url) as response:
-                if response.status != 200:
-                    raise Exception(f"HTTP {response.status}: Failed to download image")
-                
-                content_length = response.headers.get('content-length')
-                if content_length and int(content_length) > MAX_FILE_SIZE:
-                    raise Exception(f"Image too large: {content_length} bytes (max: {MAX_FILE_SIZE})")
-                
-                data = b""
-                async for chunk in response.content.iter_chunked(8192):
-                    data += chunk
-                    if len(data) > MAX_FILE_SIZE:
-                        raise Exception(f"Image too large: {len(data)} bytes (max: {MAX_FILE_SIZE})")
-                
-                return data
-    except asyncio.TimeoutError:
-        raise Exception("Timeout downloading image")
-    except Exception as e:
-        raise Exception(f"Failed to download image: {str(e)}")
-
-def validate_and_prepare_image(image_data: bytes):
-    try:
-        if len(image_data) > MAX_FILE_SIZE:
-            raise Exception(f"Image too large: {len(image_data)} bytes (max: {MAX_FILE_SIZE})")
-        img = Image.open(io.BytesIO(image_data))
-        width, height = img.size
-        
-        if width > MAX_IMAGE_DIMENSION or height > MAX_IMAGE_DIMENSION:
-            raise Exception(f"Image dimensions too large: {width}x{height} (max: {MAX_IMAGE_DIMENSION})")
-        
-        # Save to temp file for processing
-        temp_file = os.path.join(UPLOAD_FOLDER, f"temp_{int(time.time() * 1000)}.jpg")
-        img.save(temp_file, format="JPEG", quality=95)
-        
-        return temp_file, width, height, img.format
-    except Exception as e:
-        raise Exception(f"Invalid image: {str(e)}")
-
-async def process_upscale(image_path: str, target_resolution: str, enhance_faces: bool = True):
-    loop = asyncio.get_event_loop()
-    try:
-        # Generate output path
-        output_file = os.path.join(UPLOAD_FOLDER, f"upscaled_{int(time.time() * 1000)}.jpg")
-        result = await loop.run_in_executor(
-            executor, 
-            upscale_image_pipeline, 
-            image_path, 
-            output_file,
-            target_resolution,
-            enhance_faces
-        )
-        
-        # Read upscaled image and convert to base64
-        if result["success"]:
-            with open(result["file_path"], "rb") as f:
-                img_bytes = f.read()
-                result["base64"] = base64.b64encode(img_bytes).decode()
-        
-        return result
-    except Exception as e:
-        logger.error(f"Upscaling error: {e}")
-        raise
-
-async def validate_image_url(url: str) -> bool:
-    try:
-        timeout = aiohttp.ClientTimeout(total=10)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.head(url, allow_redirects=True) as response:
-                if response.status != 200:
-                    return False
-                
-                content_type = response.headers.get('content-type', '').lower()
-                valid_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/x-icon']
-                
-                if not any(vtype in content_type for vtype in valid_types):
-                    return False
-                
-                return True
-    except Exception:
-        return False
 
 @app.route('/upscale', methods=['POST', 'GET'])
 async def upscale_endpoint():
