@@ -15,9 +15,6 @@ from config import UPLOAD_FOLDER, MAX_FILE_SIZE, MAX_IMAGE_DIMENSION, ALLOWED_EX
 app = Quart(__name__)
 cors(app, allow_origin="*")
 
-
-
-
 executor = ThreadPoolExecutor(max_workers=10)
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -197,33 +194,24 @@ async def upscale_endpoint():
                 return jsonify({"error": "img_url is required"}), 400
             if target_resolution not in ['2k', '4k', '8k']:
                 return jsonify({"error": "Target resolution must be 2k, 4k, or 8k"}), 400
-            
-            # Validate URL format
             if not isinstance(img_url, str) or not (img_url.startswith('http://') or img_url.startswith('https://')):
                 return jsonify({"error": "Invalid img_url format"}), 400
-            
-            # Validate image URL
+
             logger.info(f"Validating image URL: {img_url}")
             if not await validate_image_url(img_url):
                 return jsonify({"error": "URL does not point to a valid image file"}), 400
-            
-            # Download image
             try:
                 logger.info(f"Downloading image from: {img_url}")
                 image_data = await download_image(img_url)
             except Exception as e:
                 logger.error(f"Download failed: {e}")
                 return jsonify({"error": str(e)}), 400
-
-            # Validate and prepare image
             try:
                 temp_image_path, width, height, img_format = validate_and_prepare_image(image_data)
                 logger.info(f"Image validated: {width}x{height}, format: {img_format}, size: {len(image_data)} bytes")
             except Exception as e:
                 logger.error(f"Image validation failed: {e}")
                 return jsonify({"error": str(e)}), 400
-            
-            # Process upscale
             try:
                 logger.info(f"Starting upscaling: {width}x{height} -> target: {target_resolution}")
                 result = await process_upscale(temp_image_path, target_resolution, enhance_faces)
