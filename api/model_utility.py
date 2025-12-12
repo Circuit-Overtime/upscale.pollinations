@@ -1,7 +1,3 @@
-from multiprocessing.managers import BaseManager
-import threading
-import os
-import signal
 from basicsr.archs.rrdbnet_arch import RRDBNet
 from config import MODEL_PATH_x2, MODEL_PATH_x4, FACE_ENHANCER_MODEL
 from realesrgan import RealESRGANer
