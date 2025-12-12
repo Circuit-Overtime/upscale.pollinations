@@ -1,30 +1,10 @@
 import numpy as np
 import cv2
 from PIL import Image
-from multiprocessing.managers import BaseManager
 import torch
 from loguru import logger
 from config import MAX_8K_DIMENSION, MAX_4K_DIMENSION, MAX_2K_DIMENSION, RESOLUTION_TARGETS, UPSCALING_THRESHOLDS
 
-class modelManager(BaseManager):
-    pass
-
-modelManager.register("ipcService")
-
-IPC_PORTS = [6002]
-current_port_index = 0
-
-def get_model_server():
-    global current_port_index
-    port = IPC_PORTS[current_port_index % len(IPC_PORTS)]
-    current_port_index += 1
-    try:
-        manager = modelManager(address=("localhost", port), authkey=b"ipcService")
-        manager.connect()
-        return manager.ipcService()
-    except Exception as e:
-        logger.error(f"Failed to connect to model server on port {port}: {e}")
-        raise
 
 def parse_target_resolution(target: str) -> int:
     try:
