@@ -8,7 +8,7 @@ import glob
 from PIL import Image
 from loguru import logger
 import time
-from api.upscaler_inference import upscale_image_pipeline
+from upscaler_inference import upscale_image_pipeline
 from concurrent.futures import ThreadPoolExecutor
 from quart_cors import cors
 from config import UPLOAD_FOLDER, MAX_FILE_SIZE, MAX_IMAGE_DIMENSION, ALLOWED_EXTENSIONS, CLEANUP_INTERVAL, FILE_MAX_AGE

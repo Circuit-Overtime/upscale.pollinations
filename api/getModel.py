@@ -30,9 +30,9 @@ def download_model(model_name="RealESRGAN_x4plus.pth"):
         
         print(f"Model downloaded: {UPSCALER_MODEL_PATH}/{model_name}")
 if __name__ == "__main__":
-    # download_model("RealESRGAN_x2plus.pth")
-    # download_model("RealESRGAN_x4plus.pth")
-    # download_model("GFPGANv1.4.pth")
-    download_model("SwinIR_x2.pth")  
-    download_model("SwinIR_x4.pth")
-    download_model("SwinIR_x8.pth")
+    download_model("RealESRGAN_x2plus.pth")
+    download_model("RealESRGAN_x4plus.pth")
+    download_model("GFPGANv1.4.pth")
+    # download_model("SwinIR_x2.pth")  
+    # download_model("SwinIR_x4.pth")
+    # download_model("SwinIR_x8.pth")
